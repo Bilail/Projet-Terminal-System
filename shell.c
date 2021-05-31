@@ -37,7 +37,10 @@ void init_shell () {
 		signal (SIGCHLD, SIG_IGN);
 		shell_pgid = getpid();
 		if (setpgid (shell_pgid, shell_pgid) < 0)
-			printf("ERROR: Couldn't put the shell in its own process group\n");
+			{
+          perror ("Couldn't put the shell in its own process group");
+          exit (1);
+        }
 		/*	Grab control of the terminal	*/
 		tcsetpgrp(shell_terminal, shell_pgid);
 		/*	Save default terminal attributes for shell. */
