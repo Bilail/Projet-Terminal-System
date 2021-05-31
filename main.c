@@ -77,7 +77,8 @@ int shell_is_interactive;
 /* Make sure the shell is running interactively as the foreground job
    before proceeding. */
 
-void init_shell ()
+void
+init_shell ()
 {
 
   /* See if we are running interactively.  */
@@ -112,5 +113,11 @@ void init_shell ()
       /* Save default terminal attributes for shell.  */
       tcgetattr (shell_terminal, &shell_tmodes);
     }
+}
+
+int main() {
+   // printf() displays the string inside quotation
+   // printf("Hello, World!");
+   return 0;
 }
 
