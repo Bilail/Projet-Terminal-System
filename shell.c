@@ -353,7 +353,7 @@ int  main(int argc, char ** argvFILE) {
 	init_shell();	
 	while (1) {                   /* repeat until done ....         */
 		if(input_from_file < 0)		/*	stdin is coming from user not file */
-			printf("sish:>");        /*   display a prompt             */   	             	
+			printf("Polytech Paris Saclay >");        /*   display a prompt             */   	             	
 		memset (line, '\0', sizeof(line));		// zero line, (fills array with null terminator)
           memset (argv, '\0', sizeof(argv));
           if (!fgets(line, sizeof(line), stdin)) 	{printf("\n"); return 0;}	// Exit upon ctrl-D
