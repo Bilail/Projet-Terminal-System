@@ -326,7 +326,7 @@ void free_job(job * j) {
 	free (j);
 }
 
- 
+// La fonction cd pour atteindre un dossier
 void cd (char * dir) {
 	char path[100];
 	
@@ -365,8 +365,8 @@ int  main(int argc, char ** argvFILE) {
 		parse (line, argv, ptokens);		// parse input to shell
 		if (argv[0] == '\0')
 			continue;
-		else if (strcmp(argv[0], "exit") == 0)  /* is it an "exit"?     */      
-			return 0;            /*   exit if it is                */        
+		else if (strcmp(argv[0], "exit") == 0)  // si on tape exit      
+			return 0;            //   on sort du programme                      
 		else if (strcmp(argv[0], "cd") == 0) 
 			cd (argv[1]);	             	
 		else {
