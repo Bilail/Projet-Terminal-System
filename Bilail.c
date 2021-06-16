@@ -35,20 +35,16 @@ void init_shell () {
 		signal (SIGTTIN, SIG_IGN);
 		signal (SIGTTOU, SIG_IGN);
 		signal (SIGCHLD, SIG_IGN);
-		shell_pgid = getpid();
-		if (setpgid (shell_pgid, shell_pgid) < 0)
-			{
-          perror ("Couldn't put the shell in its own process group");
-          exit (1);
-        }
-		/*	Grab control of the terminal	*/
+		shell_pgid = getpid(); // fonction a lire et comprendre la doc 
+
+		/*	prendre le controle du terminal 	*/
 		tcsetpgrp(shell_terminal, shell_pgid);
-		/*	Save default terminal attributes for shell. */
+		/*	Sauvegarde les attributs du shell . */
 		tcgetattr (shell_terminal, &shell_tmodes);
 	}	
 }
 
-typedef struct process {      /* La structure de nos processus */
+typedef struct process {      	/* La structure de nos processus */
 	struct process *next;       /* un pointeur vers le prochain processus */
 	char **argv;                /* pour executer  */
 	pid_t pid;                  /* ID du processus */
@@ -60,12 +56,14 @@ typedef struct job {
 	process *first_process;     /* liste des processus dans le job */
 	pid_t pgid;                 /* ID du groupes de processus */
 	struct termios tmodes;      /* le mode du terminal  */
-	char * input;		 /* file i/o channels */
+	char * input;		 		/* file i/o channels */
 	char * output; 
 } job;
 
+
 /* on stocke un pointeur vers le job actuel   */
 job *first_job = NULL;
+
 
 	/*  on initialise un job */
 job * job_initialize (char **argv, int  num_tokens, int *foreground) {

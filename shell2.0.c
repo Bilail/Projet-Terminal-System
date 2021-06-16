@@ -43,10 +43,10 @@ int lsh_num_builtins() {
 int lsh_cd(char **args)
 {
   if (args[1] == NULL) {
-    fprintf(stderr, "lsh: expected argument to \"cd\"\n");
+    fprintf(stderr, "erreur: expected argument to \"cd\"\n");
   } else {
     if (chdir(args[1]) != 0) {
-      perror("lsh");
+      perror("erreur");
     }
   }
   return 1;
@@ -60,7 +60,7 @@ int lsh_cd(char **args)
 int lsh_help(char **args)
 {
   int i;
-  printf("Stephen Brennan's LSH\n");
+  printf("Stephen Brennan's erreur\n");
   printf("Type program names and arguments, and hit enter.\n");
   printf("The following are built in:\n");
 
@@ -96,12 +96,12 @@ int lsh_launch(char **args)
   if (pid == 0) {
     // Child process
     if (execvp(args[0], args) == -1) {
-      perror("lsh");
+      perror("erreur");
     }
     exit(EXIT_FAILURE);
   } else if (pid < 0) {
     // Error forking
-    perror("lsh");
+    perror("erreur");
   } else {
     // Parent process
     do {
@@ -148,7 +148,7 @@ char *lsh_read_line(void)
     if (feof(stdin)) {
       exit(EXIT_SUCCESS);  // We received an EOF
     } else  {
-      perror("lsh: getline\n");
+      perror("erreur: getline\n");
       exit(EXIT_FAILURE);
     }
   }
@@ -161,7 +161,7 @@ char *lsh_read_line(void)
   int c;
 
   if (!buffer) {
-    fprintf(stderr, "lsh: allocation error\n");
+    fprintf(stderr, "erreur: allocation error\n");
     exit(EXIT_FAILURE);
   }
 
@@ -184,7 +184,7 @@ char *lsh_read_line(void)
       bufsize += LSH_RL_BUFSIZE;
       buffer = realloc(buffer, bufsize);
       if (!buffer) {
-        fprintf(stderr, "lsh: allocation error\n");
+        fprintf(stderr, "erreur: allocation error\n");
         exit(EXIT_FAILURE);
       }
     }
@@ -206,7 +206,7 @@ char **lsh_split_line(char *line)
   char *token, **tokens_backup;
 
   if (!tokens) {
-    fprintf(stderr, "lsh: allocation error\n");
+    fprintf(stderr, "erreur: allocation error\n");
     exit(EXIT_FAILURE);
   }
 
@@ -221,7 +221,7 @@ char **lsh_split_line(char *line)
       tokens = realloc(tokens, bufsize * sizeof(char*));
       if (!tokens) {
 		free(tokens_backup);
-        fprintf(stderr, "lsh: allocation error\n");
+        fprintf(stderr, "erreur: allocation error\n");
         exit(EXIT_FAILURE);
       }
     }
@@ -242,7 +242,7 @@ void lsh_loop(void)
   int status;
 
   do {
-    printf("> ");
+    printf("Polytech Paris Saclay > ");
     line = lsh_read_line();
     args = lsh_split_line(line);
     status = lsh_execute(args);
