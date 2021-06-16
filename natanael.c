@@ -386,7 +386,7 @@ do_job_notification (void)
           jlast->next = jnext;
         else
           first_job = jnext;
-        free_job (j);
+        free (j);
       }
 
       /* Notify the user about stopped jobs,
@@ -427,7 +427,11 @@ continue_job (job *j, int foreground)
 
 
 int main() {
-   // printf() displays the string inside quotation
-   // printf("Hello, World!");
+   
+    init_shell();
+    while(1){
+      printf("Polytech Paris Saclay >");
+    }
+
    return 0;
 }
