@@ -3,5 +3,6 @@
         "stdlib.h": "c",
         "string.h": "c",
         "stat.h": "c"
-    }
+    },
+    "C_Cpp.autocompleteAddParentheses": true
 }
