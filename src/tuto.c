@@ -242,3 +242,47 @@ void launch_job (job *j, int foreground) // Pour lancer un job
   else
     put_job_in_background (j, 0); // on le place en arrière plan 
 }
+
+
+/* -------- Premier et Arrière plan ----------*/
+
+void put_job_in_foreground (job *j, int cont)
+{
+  /* Mettre le job au premier plan */
+  /* tcgetpgrp : permet de recuperer un ID que l'on compare avec celui du premier plan actuel 
+  On lui donne le controle sur le shell*/
+  tcsetpgrp (shell_terminal, j->pgid);
+
+  /* Send the job a continue signal, if necessary.  */
+  if (cont)
+    {
+      tcsetattr (shell_terminal, TCSADRAIN, &j->tmodes);
+      if (kill (- j->pgid, SIGCONT) < 0)
+        perror ("kill (SIGCONT)");
+    }
+
+  /* On attend que tous les process du job se termine  */
+  wait_for_job (j);
+
+  /* Un fois fini on remet le shell en premier plan   */
+  tcsetpgrp (shell_terminal, shell_pgid);
+
+  /* On restaures les modes du shell, si ils avaient été modfié par les process  */
+  tcgetattr (shell_terminal, &j->tmodes);
+  tcsetattr (shell_terminal, TCSADRAIN, &shell_tmodes);
+}
+
+
+/*  Si le groupe de processus est lancé en tant que tâche en arrière-plan, 
+le shell doit rester au premier plan lui-même et continuer à lire les commandes à partir du terminal.
+   ----------------------------------------------
+   On met un job en background, Si cont est truen on lui envoie un signal 
+   pour le reveiller  */
+
+void put_job_in_background (job *j, int cont)
+{
+  /* Send the job a continue signal, if necessary.  */
+  if (cont)
+    if (kill (-j->pgid, SIGCONT) < 0)
+      perror ("kill (SIGCONT)");
+}
