@@ -180,18 +180,16 @@ void launch_process (process *p, pid_t pgid,
   exit (1);
 }
 
-void
-launch_job (job *j, int foreground)
+void launch_job (job *j, int foreground) // Pour lancer un job 
 {
-  process *p;
+  process *p; // on a un process
   pid_t pid;
   int mypipe[2], infile, outfile;
 
-  infile = j->stdin;
-  for (p = j->first_process; p; p = p->next)
+  infile = j->stdin;  // On recupere l'entrée 
+  for (p = j->first_process; p; p = p->next) // On parcours tous les process
     {
-      /* Set up pipes, if necessary.  */
-      if (p->next)
+      if (p->next) // si il y a un next 
         {
           if (pipe (mypipe) < 0)
             {
@@ -201,14 +199,14 @@ launch_job (job *j, int foreground)
           outfile = mypipe[1];
         }
       else
-        outfile = j->stdout;
+        outfile = j->stdout; // flux de sortie 
 
       /* Fork the child processes.  */
       pid = fork ();
       if (pid == 0)
         /* This is the child process.  */
         launch_process (p, j->pgid, infile,
-                        outfile, j->stderr, foreground);
+                        outfile, j->stderr, foreground); // on execute le process
       else if (pid < 0)
         {
           /* The fork failed.  */
@@ -216,14 +214,14 @@ launch_job (job *j, int foreground)
           exit (1);
         }
       else
-        {
+        {   // si le pid > 0 alors c le parent
           /* This is the parent process.  */
           p->pid = pid;
           if (shell_is_interactive)
             {
               if (!j->pgid)
                 j->pgid = pid;
-              setpgid (pid, j->pgid);
+              setpgid (pid, j->pgid); //on défini l'ID du process
             }
         }
 
