@@ -1,5 +1,15 @@
-
-
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+#include <termios.h>
+#include <sys/wait.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <ctype.h>
+#include <signal.h>
 
 
 /*      Nos Structure de données      */
@@ -83,7 +93,7 @@ int shell_is_interactive;
         et en arrière plan */
 
 void
-init_shell ()
+init_shell()
 {
 
   /* On regarde si il est interractive   */
@@ -273,8 +283,8 @@ void put_job_in_foreground (job *j, int cont)
 }
 
 
-/*  Si le groupe de processus est lancé en tant que tâche en arrière-plan, 
-le shell doit rester au premier plan lui-même et continuer à lire les commandes à partir du terminal.
+  /*  Si le groupe de processus est lancé en tant que tâche en arrière-plan, 
+  le shell doit rester au premier plan lui-même et continuer à lire les commandes à partir du terminal.
    ----------------------------------------------
    On met un job en background, Si cont est truen on lui envoie un signal 
    pour le reveiller  */
@@ -285,4 +295,116 @@ void put_job_in_background (job *j, int cont)
   if (cont)
     if (kill (-j->pgid, SIGCONT) < 0)
       perror ("kill (SIGCONT)");
+}
+
+
+/* -------- Nos fonctions CD et CP ----------*/
+
+// La fonction cd pour atteindre un dossier
+void cd (char * dir) {
+	char path[100];
+	
+	if (dir != NULL) {
+		getcwd(path, sizeof(path));     //  ON recupere le repertoire actuelle
+		strncat(path, "/", 1);
+		strncat(path, dir, strlen(dir));		//  On ajoute le nouveau chemin
+		if (chdir(path) < 0)		//  ON vérifie les erreurs
+			printf("ERROR: chemin non trouvé %s\n", dir);			
+		return;		
+	}
+
+ 
+//Fonction pour copier un fichier
+void cpfile(const char *src , const char *dest){
+
+    int fsrc = open(src, O_RDONLY); // on ouvre en lecture seulement 
+    /*struct stat st;      
+    fstat (fsrc =, &st);  sans chmod */
+    int fdest = open(dest, O_WRONLY | O_CREAT | O_EXCL, 0666);
+
+    struct stat istat;
+    fstat(fsrc, &istat);
+    fchmod(fdest, istat.st_mode); // passer par chmod
+    
+    while(1){
+        char buffer[4096];
+        int rcnt = read(fsrc, buffer, sizeof(buffer));
+        if (rcnt == 0)
+            break;
+        int pos = 0;
+        while (rcnt != 0){
+            int wcnt = write (fdest, buffer + pos, rcnt); 
+            rcnt -= wcnt; // On enleve ce que l'on a écrit
+            pos += wcnt; // on reprend l'ecriture la ou on c'est arrété 
+        }
+    }
+    close(fsrc);
+    close(fdest);
+
+}
+
+
+//Fonction pour copier un repertoire
+void cprep(const char *src , const char *dest){
+	
+	// Copie de repertoire
+	DIR* fsrc = opendir(src);
+    DIR* fdest = opendir(dest);
+
+    if (fdest == NULL) { // Si le fichier destination n'existe pas 
+        mkdir(dest, 0777); // On le crée
+    }
+
+	struct dirent *pd ;
+
+    pd = readdir(fsrc);
+
+    struct stat info;
+
+    while( (pd = readdir(fsrc)) != NULL) // Tant qu'il y a des éléments à copier
+	{
+        char path_src[100];
+        char path_dest[100];
+        char filename[100];
+
+        if(strncmp(pd->d_name,".",1) == 0)
+			continue ;
+        
+        else {
+                strcpy(path_src,src); // On copie dans path_src le chemin de src 
+            	strcpy(path_dest,dest); // On copie dans path_dest le chemin de dest 
+           		strcpy(filename, pd->d_name); //on recupere le nom du fichier sur lequel pointe pd
+
+           		strcat(path_src,"/"); // on rajoute / au chemin path_src
+           		strcat(path_src,filename); // on lui ajoute ensuite le nom du fichier pointe
+
+            	strcat(path_dest,"/");   // On fais la même chose pour path_dest 
+            	strcat(path_dest,filename);
+
+			    stat(path_src,&info); //on recupere les infos du fichier 
+
+			if(S_ISDIR(info.st_mode)!=0){ // si c'est un repertoire
+			//if(pd->d_type == DT_DIR){ // si c'est un repertoire avec autre methode
+                mkdir(path_dest, 0777); // On crée le fichier à l'emplacement path_dest 
+				cprep(path_src,path_dest); // on copie les fichiers à l'interieur du repertoire de maniere recursive 
+			}
+			else { // si c'est un fichier : 
+            	cpfile(path_src,path_dest); // on reutilise la fonction de l'etape 2 
+			}	
+        }   
+    }
+    
+    closedir(fsrc);
+    closedir(fdest);
+
+}
+
+int  main(int argc, char ** argvFILE) {
+
+  init_shell();
+  while(1){
+
+    
+  }
+
 }
