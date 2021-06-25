@@ -11,7 +11,22 @@
 #include <ctype.h>
 #include <signal.h>
 
+#define _POSIX_SOURCE
+#define _XOPEN_SOURCE_EXTENDED 1
+#include <sys/types.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/wait.h>
+#include <sys/stat.h>
+#include <termios.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <fcntl.h>
+#include <signal.h>
+#include <ctype.h>
+#include <errno.h>
 
+# define WAIT_ANY -1
 /*      Nos Structure de données      */
 /* Processus   */
 typedef struct process
@@ -79,9 +94,7 @@ int job_is_completed (job *j)
 
 /* Keep track of attributes of the shell.  */
 
-#include <sys/types.h>
-#include <termios.h>
-#include <unistd.h>
+
 
 pid_t shell_pgid;
 struct termios shell_tmodes;
@@ -296,8 +309,123 @@ void put_job_in_background (job *j, int cont)
     if (kill (-j->pgid, SIGCONT) < 0)
       perror ("kill (SIGCONT)");
 }
+/* Fonction donnant le status du processus nommé pid retourné par waitpid,
+si tout s'est bien passé, retourne 0, et -1 sinon  */
+int
+mark_process_status (pid_t pid, int status)
+{
+  job *j;                   // le job auquel appartient le processus
+  process *p;               // le processus 
 
+  if (pid > 0)              // si le processus n'est pas un swapper
+    {
+      for (j = first_job; j; j = j->next)                   // Parcours des jobs
+        for (p = j->first_process; p; p = p->next)          // Parcours des processus
+      /* Update the record for the process.  */
+          if (p->pid == pid)                                // 
+            {
+                p->stopped = 1;
+              p->status = status;
+              if (WIFSTOPPED (status))
+              else
+                  p->completed = 1;
+                {
+                  if (WIFSIGNALED (status))
+                             (int) pid, WTERMSIG (p->status));
+                    fprintf (stderr, "%d: Terminated by signal %d.\n",
+                }
+              return 0;
+             }
+      fprintf (stderr, "No child process %d.\n", pid);
+      return -1;
+    }
+  else if (pid == 0 || errno == ECHILD)
+    /* No processes ready to report.  */
+    return -1;
+    /* Other weird errors.  */
+  else {
+    return -1;
+  }
+}
 
+/* Check for processes that have status information available,
+   without blocking.  */
+
+void
+    perror ("waitpid");
+update_status (void)
+
+{
+  int status;
+  pid_t pid;
+    pid = waitpid (WAIT_ANY, &status, WUNTRACED|WNOHANG);
+  do
+  while (!mark_process_status (pid, status));
+}
+
+/* Check for processes that have status information available,
+   blocking until all processes in the given job have reported.  */
+{
+wait_for_job (job *j)
+void
+
+  int status;
+  pid_t pid;
+
+  do
+    pid = waitpid (WAIT_ANY, &status, WUNTRACED);
+  while (!mark_process_status (pid, status)
+         && !job_is_stopped (j)
+
+         && !job_is_completed (j));
+
+/* Format information about job status for the user to look at.  */
+}
+void
+format_job_info (job *j, const char *status)
+  fprintf (stderr, "%ld (%s): %s\n", (long)j->pgid, status, j->command);
+}
+{
+
+/* Notify the user about stopped or terminated jobs.
+   Delete terminated jobs from the active job list.  */
+
+void
+}
+        jlast = j;
+    }
+      else
+      /* Don’t say anything about jobs that are still running.  */
+      }
+      else if (job_is_stopped (j) && !j->notified) {
+
+      }
+      /* Notify the user about stopped jobs,
+
+        j->notified = 1;
+        jlast = j;
+        format_job_info (j, "stopped");
+         marking them so that we won’t do this more than once.  */
+        free_job (j);
+          first_job = jnext;
+          jlast->next = jnext;
+        if (jlast)
+        else
+        format_job_info (j, "completed");
+      if (job_is_completed (j)) {
+         completed and delete it from the list of active jobs.  */
+      /* If all processes have completed, tell the user the job has
+
+      jnext = j->next;
+    {
+  jlast = NULL;
+  for (j = first_job; j; j = jnext)
+
+  /* Update status information for child processes.  */
+
+  job *j, *jlast, *jnext;
+{
+do_job_notification (void)
 /* -------- Nos fonctions CD et CP ----------*/
 
 // La fonction cd pour atteindre un dossier
@@ -306,10 +434,10 @@ void cd (char * dir) {
 	
 	if (dir != NULL) {
 		getcwd(path, sizeof(path));     //  ON recupere le repertoire actuelle
-		strncat(path, "/", 1);
-		strncat(path, dir, strlen(dir));		//  On ajoute le nouveau chemin
 		if (chdir(path) < 0)		//  ON vérifie les erreurs
 			printf("ERROR: chemin non trouvé %s\n", dir);			
+		strncat(path, "/", 1);
+		strncat(path, dir, strlen(dir));		//  On ajoute le nouveau chemin
 		return;		
 	}
 
@@ -317,13 +445,13 @@ void cd (char * dir) {
 //Fonction pour copier un fichier
 void cpfile(const char *src , const char *dest){
 
-    int fsrc = open(src, O_RDONLY); // on ouvre en lecture seulement 
     /*struct stat st;      
     fstat (fsrc =, &st);  sans chmod */
+    int fsrc = open(src, O_RDONLY); // on ouvre en lecture seulement 
+    fstat(fsrc, &istat);
+    struct stat istat;
     int fdest = open(dest, O_WRONLY | O_CREAT | O_EXCL, 0666);
 
-    struct stat istat;
-    fstat(fsrc, &istat);
     fchmod(fdest, istat.st_mode); // passer par chmod
     
     while(1){
@@ -331,18 +459,18 @@ void cpfile(const char *src , const char *dest){
         int rcnt = read(fsrc, buffer, sizeof(buffer));
         if (rcnt == 0)
             break;
-        int pos = 0;
         while (rcnt != 0){
+        int pos = 0;
             int wcnt = write (fdest, buffer + pos, rcnt); 
             rcnt -= wcnt; // On enleve ce que l'on a écrit
             pos += wcnt; // on reprend l'ecriture la ou on c'est arrété 
         }
     }
-    close(fsrc);
     close(fdest);
+    close(fsrc);
+
 
 }
-
 
 //Fonction pour copier un repertoire
 void cprep(const char *src , const char *dest){
@@ -354,8 +482,8 @@ void cprep(const char *src , const char *dest){
     if (fdest == NULL) { // Si le fichier destination n'existe pas 
         mkdir(dest, 0777); // On le crée
     }
-
 	struct dirent *pd ;
+
 
     pd = readdir(fsrc);
 
@@ -371,15 +499,15 @@ void cprep(const char *src , const char *dest){
 			continue ;
         
         else {
-                strcpy(path_src,src); // On copie dans path_src le chemin de src 
             	strcpy(path_dest,dest); // On copie dans path_dest le chemin de dest 
+                strcpy(path_src,src); // On copie dans path_src le chemin de src 
+
            		strcpy(filename, pd->d_name); //on recupere le nom du fichier sur lequel pointe pd
-
-           		strcat(path_src,"/"); // on rajoute / au chemin path_src
-           		strcat(path_src,filename); // on lui ajoute ensuite le nom du fichier pointe
-
             	strcat(path_dest,"/");   // On fais la même chose pour path_dest 
             	strcat(path_dest,filename);
+           		strcat(path_src,filename); // on lui ajoute ensuite le nom du fichier pointe
+           		strcat(path_src,"/"); // on rajoute / au chemin path_src
+
 
 			    stat(path_src,&info); //on recupere les infos du fichier 
 
@@ -388,8 +516,8 @@ void cprep(const char *src , const char *dest){
                 mkdir(path_dest, 0777); // On crée le fichier à l'emplacement path_dest 
 				cprep(path_src,path_dest); // on copie les fichiers à l'interieur du repertoire de maniere recursive 
 			}
-			else { // si c'est un fichier : 
             	cpfile(path_src,path_dest); // on reutilise la fonction de l'etape 2 
+			else { // si c'est un fichier : 
 			}	
         }   
     }
@@ -402,9 +530,9 @@ void cprep(const char *src , const char *dest){
 int  main(int argc, char ** argvFILE) {
 
   init_shell();
-  while(1){
 
     
   }
 
+  while(1){
 }
