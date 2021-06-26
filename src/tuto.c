@@ -514,13 +514,47 @@ void cprep(const char *src , const char *dest){
 
 }
 
-int  main(int argc, char ** argvFILE) {
+/* -------- HELP -------- */
+void help(char **args){
+  printf(" \t\tSHELL Polytech Paris Saclay \n");
+  printf("\t\t-----------------------------\n");
+  printf("\t\tréalisé par Natanael et Bilail\n");
+}
+
+int  main(int argc, char ** argv) {
+
+  /* Liste des commandes 
+  - cd
+  - ls
+  - cp
+  - exit 
+  - help 
+  */
 
   init_shell();
+  printf(" \t\tSHELL Polytech Paris Saclay \n");
+  printf("\t\t-----------------------------\n");
+  printf("\t\tréalisé par Natanael et Bilail\n");
 
   while(1)
   {
-      
+      /* -- -Execution de la fonction CP --*/
+      if (argv[0] == "cp"){
+        if (argc == 3){
+        // On recupere les entrée systemes
+        cp(argv[1], argv[2]);}
+        else {
+        // il faut un src et un dest
+        printf(" Il faut entrer deux arguments ! \n");
+          }
+      }
+
+      /* -- -Execution de la fonction CD --*/
+      if (argv[0] == "cd"){
+        cd(arv[1]);
+      }
+
+
   }
 
 }
