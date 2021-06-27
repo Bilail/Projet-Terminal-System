@@ -34,12 +34,122 @@ typedef struct job
   pid_t pgid;                 /* process group ID */
   char notified;              /* true si l'utilisateur a stopped job */
   struct termios tmodes;      /* saved terminal modes */
-  int stdin, stdout, stderr;  /* standard i/o channels */
+  int stdin, stdout, stderr;
+  char * input;		 
+	char * output; 
 } job;
 
 /* The active jobs are linked into a list.  This is its head.  
 On initialise le job - pour le moment il ne pointe rien */
 job *first_job = NULL;
+
+	/*  Initializing a job */
+job * job_initialize (char **argv, int  num_tokens, int *foreground) {
+	job * j;
+	process * p;
+	char ** command;
+	int i, counter,test;
+	
+	j = (job *) malloc (sizeof(job));
+	j->first_process = NULL;
+	j->input = NULL;
+	j->output = NULL;
+	command = (char **) malloc (sizeof(char **) * (num_tokens + 1));
+	
+	/*	Checks if argument is intended to run in the background */
+	if (strcmp(argv[num_tokens - 1], "&") == 0) {
+		*foreground = 0;
+		num_tokens--;
+	}
+	else 
+		*foreground = 1;
+
+	/*	Check incoming parsed input for piping and or redirection */
+	counter = 0;		//  Used to keep track of individual command tokens
+	for ( i = 0; i < num_tokens; i++) {		
+		if (strcmp(argv[i], "|") == 0) {
+			if (!j->first_process) {
+				j->first_process = (process *) malloc (sizeof(process));
+				j->first_process->argv = (char ** ) malloc (counter * 100);  // arbitrarily large
+				for ( test = 0; test < counter; test++) 
+					j->first_process->argv[test] = command[test];
+				j->first_process->argv[test] = '\0';
+				j->first_process->next = NULL;
+			}	
+			else {
+				p = j->first_process; 
+				while (p->next)
+					p = p->next;
+				p->next = (process *) malloc (sizeof(process));
+				p->next->argv = (char ** ) malloc (counter * 100);
+				p = p->next;
+				for ( test = 0; test < counter; test++) 
+					p->argv[test] = command[test];
+				p->argv[test] = '\0';
+				p->next = NULL;				
+			}
+			/*	Clear data stored in command and begin storing */
+			memset(command, '\0', sizeof(char**) * num_tokens);	
+			counter = 0;
+		}		
+		else if(strcmp(argv[i],  "<") == 0) {
+			if((j->first_process)  || (num_tokens <= i + 1 )) {
+				printf("ERROR: Unable to redirect files in this manner\n");
+				return NULL;
+			}			
+			j->input = argv[++i];
+			if (num_tokens == i + 1) {
+				j->first_process = (process *) malloc (sizeof(process));
+				j->first_process->argv = (char ** ) malloc (counter * 100);
+				for ( test = 0; test < counter; test++) 
+					j->first_process->argv[test] = command[test];
+				j->first_process->argv[test] = '\0';
+				j->first_process->next = NULL;
+				return j;
+			}
+		}
+		else if(strcmp(argv[i],  ">") == 0) {
+			if ( i + 2 == num_tokens){		//  There was a token specified for redirection
+				j->output = argv[i + 1];
+				command[counter] = '\0';
+				if (!j->first_process) {
+					j->first_process = (process *) malloc (sizeof(process));
+					j->first_process->argv = command;
+				}
+				else {
+					p = j->first_process; 
+					while (p->next)
+						p = p->next;
+					p->next = (process *) malloc (sizeof(process));
+					p = p->next;
+					p->next = NULL;
+					p->argv = command;
+				} 
+				return j;
+			}
+			else {
+				printf("ERROR: Incorrect specification of files\n");
+				return NULL;
+			}
+		} 
+		else
+			command[counter++] = argv[i];
+	}
+	command[counter] = '\0';
+	if (!j->first_process) {
+		j->first_process = (process *) malloc (sizeof(process));
+		j->first_process->argv = command;
+	}
+	else {
+		p = j->first_process; 
+		while (p->next)
+			p = p->next;
+		p->next = (process *) malloc (sizeof(process));
+		p->next->argv = command;
+	} 
+	return j;
+}
+
 
 /* -------- Fonction Utile --------*/
 
