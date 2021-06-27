@@ -765,9 +765,9 @@ char **split_line(char *line)
 void printChemin() {
   char chemin[1024];
   getcwd(chemin, sizeof(chemin));
-  printf("\nChemin : %s", chemin);
+  printf("%s", chemin);
 }
-/*
+
 void ls()
 {
   char dir[2048];
@@ -777,24 +777,13 @@ void ls()
 	DIR *dh = opendir(dir);
 	if (!dh)
 	{
-		if (errno = ENOENT)
-		{
-			//If the directory is not found
-			perror("Directory doesn't exist");
-		}
-		else
-		{
-			//If the directory is not readable then throw error and exit
-			perror("Unable to read directory");
-		}
-		exit(EXIT_FAILURE);
-	}
 	//While the next entry is not readable we will print directory files
 	while ((d = readdir(dh)) != NULL)
 	{
 		printf("%s  ", d->d_name);
   }
-}*/
+}
+}
 
 /* -------- HELP -------- */
 void help(char **args){
@@ -871,22 +860,22 @@ int  main(int argc, char ** argv) {
       }
     }
     /* -- -Execution de la fonction CD --*/
-    if (strcmp(args[0],"cd")==0){
+    if (strcmp(args[0],"cd") == 0){
         cd(args[1]);
     }
-    /*else if (strcmp(args[0],"ls")){
+    else if (strcmp(args[0],"ls") == 0){
       ls();
-    }*/
+    }
     else if (strcmp(args[0], "exit") == 0){  // si on tape exit
     printf(" Merci, en revoir ^^ \n") ;    
 			return 0;            //   on sort du programme 
   }
-  else {
+  /*else {
     if((first_job = job_initialize(argv, tokens, pforeground)) != NULL){
       launch_job(first_job, foreground);
       free_job(first_job);
       }  
-    }
+    }*/
   }
   return 0;
 
