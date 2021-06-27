@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <fcntl.h>
+#include <dirent.h>
 #include <signal.h>
 #include <ctype.h>
 #include <errno.h>
@@ -134,6 +135,163 @@ init_shell()
 }
 
 
+/* Fonction stockant le status du processus identifié par pid retourné par waitpid,
+si tout s'est bien passé, retourne 0, et -1 sinon  */
+
+int mark_process_status (pid_t pid, int status)
+{
+  job *j;                   // le job auquel appartient le processus
+  process *p;               // le processus 
+
+  if (pid > 0)              // si le processus n'est pas un swapper
+    {
+      /* Update the record for the process.  */
+      for (j = first_job; j; j = j->next)                   // Parcours des jobs
+        for (p = j->first_process; p; p = p->next)          // Parcours des processus
+          if (p->pid == pid)                                // On trouve le processus correspondant
+            {
+              p->status = status;                           // On initialise son statut
+              if (WIFSTOPPED (status))                      // Si le processus a été arreté par un signal
+                p->stopped = 1;                             // mise à jour de son champ stopped
+              else
+                {
+                  p->completed = 1;                                      // Sinon màj de son champ completed
+                  if (WIFSIGNALED (status))                             // S'il s'est terminé à cause d'un signal
+                    fprintf (stderr, "%d: Terminated by signal %d.\n",
+                             (int) pid, WTERMSIG (p->status));
+                }
+              return 0;                                         // status du processus bien stocké, pas d'erreur, on retourne 0
+             }
+      fprintf (stderr, "No child process %d.\n", pid);
+      return -1;
+    }
+  else if (pid == 0 || errno == ECHILD)
+    /* No processes ready to report.  */
+    return -1;
+  else {
+    /* Other weird errors.  */
+    perror ("waitpid");
+    return -1;
+  }
+}
+
+/* Vérifie si il y as des processus dont l'information sur l'état est disponible,
+ sans bloquer si le job n'est pas arretés ou terminé  */
+
+void update_status (void)
+{
+  int status;
+  pid_t pid;
+
+  do
+    pid = waitpid (WAIT_ANY, &status, WUNTRACED|WNOHANG);     // suspendre l'éxecution
+  while (!mark_process_status (pid, status));                 // tant qu'il y a des processus dont le statut n'est pas mis à jour
+}
+
+/* Vérifie si il y as des processus dont l'information sur l'état est disponible,
+   bloque jusqu'à ce que tous les processus du job concerné soit arretés ou terminés  */
+
+void wait_for_job (job *j)
+{
+  int status;
+  pid_t pid;
+
+  do
+    pid = waitpid (WAIT_ANY, &status, WUNTRACED);             // suspendre l'éxecution
+  while (!mark_process_status (pid, status)                   // tant qu'il y a des processus dont le statut n'est pas mis à jour,
+         && !job_is_stopped (j)                               // et que tous les processus du job ne sont pas arretés ou terminés
+         && !job_is_completed (j));
+}
+
+/* Affichage des information concernant le job pour l'utilisateur  */
+
+void format_job_info (job *j, const char *status)
+{
+  fprintf (stderr, "%ld (%s): %s\n", (long)j->pgid, status, j->command);
+}
+
+/* Fonction notifiant l'utilisateur des jobs arretés ou terminés,
+   Supprime les jobs terminés de la liste des jobs actifs  */
+
+void do_job_notification (void)
+{
+  job *j, *jlast, *jnext;
+
+  /* màj du status des processus enfants  */
+  update_status ();
+
+  jlast = NULL;
+  for (j = first_job; j; j = jnext)
+    {
+      jnext = j->next;
+
+      
+      if (job_is_completed (j)) {               // Si le job est terminé
+        format_job_info (j, "completed");       // On informe l'utilisateur
+        if (jlast)                              // Si le dernier job n'était pas nul (il s'est arreté)
+          jlast->next = jnext;                  // Le job suivant du dernier traité job devient le job suivant du job actuel
+        else                                    // Sinon le job actuel devient le premier job (on entre ici qu'une seule fois) jlast étant initialisé à NULL avant la boucle
+          first_job = jnext;
+        free (j);                           // On supprime le job de la liste des jobs actifs
+      }
+
+      
+      else if (job_is_stopped (j) && !j->notified) {      // Si le job est arreté et non marqué
+        format_job_info (j, "stopped");                   // On informe l'utilisateur
+        j->notified = 1;                                  // On marque le job pour ne pas repasser dessus
+        jlast = j;                                        // Le dernier job traité devient le job actuel
+      }
+
+      
+      else                      //Job toujours en cours
+        jlast = j;         
+    }
+}
+
+
+/* -------- Premier et Arrière plan ----------*/
+
+void put_job_in_foreground (job *j, int cont)
+{
+  /* Mettre le job au premier plan */
+  /* tcgetpgrp : permet de recuperer un ID que l'on compare avec celui du premier plan actuel 
+  On lui donne le controle sur le shell*/
+  tcsetpgrp (shell_terminal, j->pgid);
+
+  /* Send the job a continue signal, if necessary.  */
+  if (cont)
+    {
+      tcsetattr (shell_terminal, TCSADRAIN, &j->tmodes);
+      if (kill (- j->pgid, SIGCONT) < 0)
+        perror ("kill (SIGCONT)");
+    }
+
+  /* On attend que tous les process du job se termine  */
+  wait_for_job (j);
+
+  /* Un fois fini on remet le shell en premier plan   */
+  tcsetpgrp (shell_terminal, shell_pgid);
+
+  /* On restaures les modes du shell, si ils avaient été modfié par les process  */
+  tcgetattr (shell_terminal, &j->tmodes);
+  tcsetattr (shell_terminal, TCSADRAIN, &shell_tmodes);
+}
+
+
+  /*  Si le groupe de processus est lancé en tant que tâche en arrière-plan, 
+  le shell doit rester au premier plan lui-même et continuer à lire les commandes à partir du terminal.
+   ----------------------------------------------
+   On met un job en background, Si cont est truen on lui envoie un signal 
+   pour le reveiller  */
+
+void put_job_in_background (job *j, int cont)
+{
+  /* Send the job a continue signal, if necessary.  */
+  if (cont)
+    if (kill (-j->pgid, SIGCONT) < 0)
+      perror ("kill (SIGCONT)");
+}
+
 /* ------ Lancement de travaux --------*/
 
 void launch_process (process *p, pid_t pgid,
@@ -224,7 +382,7 @@ void launch_job (job *j, int foreground) // Pour lancer un job
           exit (1);
         }
       else
-        {   // si le pid > 0 alors c le parent
+        {   // si le pid > 0 alors c'est le parent
           /* This is the parent process.  */
           p->pid = pid;
           if (shell_is_interactive)
@@ -246,7 +404,7 @@ void launch_job (job *j, int foreground) // Pour lancer un job
   format_job_info (j, "launched");
 
   if (!shell_is_interactive)
-    wait_for_job (j); // on attent le prochain job 
+    wait_for_job (j); // on attend le prochain job 
   else if (foreground)
     put_job_in_foreground (j, 0); // on le place au 1er plan 
   else
@@ -254,163 +412,47 @@ void launch_job (job *j, int foreground) // Pour lancer un job
 }
 
 
-/* -------- Premier et Arrière plan ----------*/
 
-void put_job_in_foreground (job *j, int cont)
-{
-  /* Mettre le job au premier plan */
-  /* tcgetpgrp : permet de recuperer un ID que l'on compare avec celui du premier plan actuel 
-  On lui donne le controle sur le shell*/
-  tcsetpgrp (shell_terminal, j->pgid);
+void  parse(char *line, char **argv, int  *tokens) {
+	*tokens = 0;
+	while (*line != '\0') {       /* if not the end of line ....... */ 
 
-  /* Send the job a continue signal, if necessary.  */
-  if (cont)
-    {
-      tcsetattr (shell_terminal, TCSADRAIN, &j->tmodes);
-      if (kill (- j->pgid, SIGCONT) < 0)
-        perror ("kill (SIGCONT)");
-    }
-
-  /* On attend que tous les process du job se termine  */
-  wait_for_job (j);
-
-  /* Un fois fini on remet le shell en premier plan   */
-  tcsetpgrp (shell_terminal, shell_pgid);
-
-  /* On restaures les modes du shell, si ils avaient été modfié par les process  */
-  tcgetattr (shell_terminal, &j->tmodes);
-  tcsetattr (shell_terminal, TCSADRAIN, &shell_tmodes);
-}
-
-
-  /*  Si le groupe de processus est lancé en tant que tâche en arrière-plan, 
-  le shell doit rester au premier plan lui-même et continuer à lire les commandes à partir du terminal.
-   ----------------------------------------------
-   On met un job en background, Si cont est truen on lui envoie un signal 
-   pour le reveiller  */
-
-void put_job_in_background (job *j, int cont)
-{
-  /* Send the job a continue signal, if necessary.  */
-  if (cont)
-    if (kill (-j->pgid, SIGCONT) < 0)
-      perror ("kill (SIGCONT)");
-}
-
-
-/* Fonction donnant le status du processus nommé pid retourné par waitpid,
-si tout s'est bien passé, retourne 0, et -1 sinon  */
-
-int mark_process_status (pid_t pid, int status)
-{
-  job *j;                   // le job auquel appartient le processus
-  process *p;               // le processus 
-
-  if (pid > 0)              // si le processus n'est pas un swapper
-    {
-      /* Update the record for the process.  */
-      for (j = first_job; j; j = j->next)                   // Parcours des jobs
-        for (p = j->first_process; p; p = p->next)          // Parcours des processus
-          if (p->pid == pid)                                // 
-            {
-              p->status = status;
-              if (WIFSTOPPED (status))
-                p->stopped = 1;
-              else
-                {
-                  p->completed = 1;
-                  if (WIFSIGNALED (status))
-                    fprintf (stderr, "%d: Terminated by signal %d.\n",
-                             (int) pid, WTERMSIG (p->status));
-                }
-              return 0;
-             }
-      fprintf (stderr, "No child process %d.\n", pid);
-      return -1;
-    }
-  else if (pid == 0 || errno == ECHILD)
-    /* No processes ready to report.  */
-    return -1;
-  else {
-    /* Other weird errors.  */
-    perror ("waitpid");
-    return -1;
-  }
-}
-
-/* Check for processes that have status information available,
-   without blocking.  */
-
-void update_status (void)
-{
-  int status;
-  pid_t pid;
-
-  do
-    pid = waitpid (WAIT_ANY, &status, WUNTRACED|WNOHANG);
-  while (!mark_process_status (pid, status));
-}
-
-/* Check for processes that have status information available,
-   blocking until all processes in the given job have reported.  */
-
-void wait_for_job (job *j)
-{
-  int status;
-  pid_t pid;
-
-  do
-    pid = waitpid (WAIT_ANY, &status, WUNTRACED);
-  while (!mark_process_status (pid, status)
-         && !job_is_stopped (j)
-         && !job_is_completed (j));
-}
-
-/* Format information about job status for the user to look at.  */
-
-void format_job_info (job *j, const char *status)
-{
-  fprintf (stderr, "%ld (%s): %s\n", (long)j->pgid, status, j->command);
-}
-
-/* Notify the user about stopped or terminated jobs.
-   Delete terminated jobs from the active job list.  */
-
-void do_job_notification (void)
-{
-  job *j, *jlast, *jnext;
-
-  /* Update status information for child processes.  */
-  update_status ();
-
-  jlast = NULL;
-  for (j = first_job; j; j = jnext)
-    {
-      jnext = j->next;
-
-      /* If all processes have completed, tell the user the job has
-         completed and delete it from the list of active jobs.  */
-      if (job_is_completed (j)) {
-        format_job_info (j, "completed");
-        if (jlast)
-          jlast->next = jnext;
-        else
-          first_job = jnext;
-        free_job (j);
-      }
-
-      /* Notify the user about stopped jobs,
-         marking them so that we won’t do this more than once.  */
-      else if (job_is_stopped (j) && !j->notified) {
-        format_job_info (j, "stopped");
-        j->notified = 1;
-        jlast = j;
-      }
-
-      /* Don’t say anything about jobs that are still running.  */
-      else
-        jlast = j;
-    }
+		while (isspace(*line) || iscntrl(*line)) {
+			if (*line == '\0') {
+				*argv = '\0';			
+				return;
+			}
+			*line++ = '\0';     /* replace white spaces with NULL terminator   */
+		}
+	         /* save the argument position     */ 
+		if(*line != '<' && *line != '>' && *line != '|') {
+			*argv++ = line; 
+			(*tokens)++;
+		}
+		while (isalnum(*line) || ispunct(*line)) {
+			if (*line == '<') {
+				(*tokens)++;
+				*line++ = '\0';
+				*argv++ = "<";
+				break;
+			}
+			else if (*line == '>') {
+				(*tokens)++;
+				*line++ = '\0';
+				*argv++ = ">";
+				break;
+			}
+			else if (*line == '|') {
+				(*tokens)++;
+				*line++ = '\0';
+				*argv++ = "|";
+				break;
+			}
+			else
+				line++;             /* skip the argument until ...    */
+		}
+	}
+	*argv = '\0';                 /* mark the end of argument list  */
 }
 
 
@@ -420,12 +462,15 @@ void cd (char * dir) {
 	
 	if (dir != NULL) {
 		getcwd(path, sizeof(path));     //  ON recupere le repertoire actuelle
+    strncat(path, "/", 1);
+    size_t length=strlen(path);
+		strncat(path, dir, length-1);		//  On ajoute le nouveau chemin
 		if (chdir(path) < 0)		//  ON vérifie les erreurs
 			printf("ERROR: chemin non trouvé %s\n", dir);			
-		strncat(path, "/", 1);
-		strncat(path, dir, strlen(dir));		//  On ajoute le nouveau chemin
 		return;		
 	}
+}
+
 
  /* -------- Nos fonctions CD et CP ----------*/
  
@@ -435,10 +480,10 @@ void cpfile(const char *src , const char *dest){
     /*struct stat st;      
     fstat (fsrc =, &st);  sans chmod */
     int fsrc = open(src, O_RDONLY); // on ouvre en lecture seulement 
-    fstat(fsrc, &istat);
-    struct stat istat;
     int fdest = open(dest, O_WRONLY | O_CREAT | O_EXCL, 0666);
 
+    struct stat istat;
+    fstat(fsrc, &istat);
     fchmod(fdest, istat.st_mode); // passer par chmod
     
     while(1){
@@ -487,7 +532,7 @@ void cprep(const char *src , const char *dest){
         
         else {
             	strcpy(path_dest,dest); // On copie dans path_dest le chemin de dest 
-                strcpy(path_src,src); // On copie dans path_src le chemin de src 
+              strcpy(path_src,src); // On copie dans path_src le chemin de src 
 
            		strcpy(filename, pd->d_name); //on recupere le nom du fichier sur lequel pointe pd
             	strcat(path_dest,"/");   // On fais la même chose pour path_dest 
@@ -503,15 +548,31 @@ void cprep(const char *src , const char *dest){
                 mkdir(path_dest, 0777); // On crée le fichier à l'emplacement path_dest 
 				cprep(path_src,path_dest); // on copie les fichiers à l'interieur du repertoire de maniere recursive 
 			}
-            	cpfile(path_src,path_dest); // on reutilise la fonction de l'etape 2 
 			else { // si c'est un fichier : 
+        cpfile(path_src,path_dest); // on reutilise la fonction de l'etape 2 
 			}	
         }   
-    }
+  }
     
     closedir(fsrc);
     closedir(fdest);
 
+}
+
+
+// Fonction de copie générale
+void cp(const char *src , const char *dest){
+    
+    struct stat info;
+
+    stat(src,&info); //on recupere les infos du fichier 
+
+    if(S_ISDIR(info.st_mode)!=0){   // si c'est un répertoire on utilise cpdir
+        cprep(src,dest);
+    }
+    else {
+        cpfile(src, dest);          // Sinon on utilise cpfile
+    }
 }
 
 /* -------- HELP -------- */
@@ -538,23 +599,28 @@ int  main(int argc, char ** argv) {
 
   while(1)
   {
+
+    if(strcmp(argv[0],"help")==0){
+      help(argv);
+    }
       /* -- -Execution de la fonction CP --*/
-      if (argv[0] == "cp"){
-        if (argc == 3){
+    if (strcmp(argv[0],"cp")==0){
+      if (argc == 3){
         // On recupere les entrée systemes
-        cp(argv[1], argv[2]);}
-        else {
+        cp(argv[1], argv[2]);
+      }
+      else {
         // il faut un src et un dest
         printf(" Il faut entrer deux arguments ! \n");
-          }
       }
+    }
 
-      /* -- -Execution de la fonction CD --*/
-      if (argv[0] == "cd"){
-        cd(arv[1]);
-      }
+    /* -- -Execution de la fonction CD --*/
+    if (strcmp(argv[0],"cd")==0){
+        cd(argv[1]);
+    }
 
 
   }
-
+  return 0;
 }
