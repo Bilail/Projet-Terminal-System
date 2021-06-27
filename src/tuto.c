@@ -575,8 +575,11 @@ void cp(const char *src , const char *dest){
     }
 }
 
+#define BUFFSIZE 1024
+
 char *read_line() {
-  int bufsize = 1024;
+
+  int bufsize = BUFFSIZE;
   int pos = 0;
   char *buffer = malloc(sizeof(char) * bufsize);
   int c;
@@ -602,7 +605,7 @@ char *read_line() {
 
     // Si le buffer n'est pas assez grand 
     if (pos >= bufsize) {
-      bufsize += 1024;
+      bufsize += BUFFSIZE;
       buffer = realloc(buffer, bufsize);
       if (!buffer) {
         fprintf(stderr, "erreur: allocation error\n");
@@ -612,28 +615,72 @@ char *read_line() {
   }
 }
 
+#define TOK_BUFFSIZE 64
+#define TOK_DELIM " \t\r\n\a"
+
+char **split_line(char *line)
+{
+  int bufsize = 1024;
+  int position = 0;
+  char **tokens = malloc(bufsize * sizeof(char*));
+  char *token, **tokens_backup;
+
+  if (!tokens) {
+    fprintf(stderr, "erreur: allocation error\n");
+    exit(EXIT_FAILURE);
+  }
+
+  token = strtok(line, TOK_DELIM);
+  while (token != NULL) {
+    tokens[position] = token;
+    position++;
+
+    if (position >= bufsize) {
+      bufsize += TOK_BUFFSIZE;
+      tokens_backup = tokens;
+      tokens = realloc(tokens, bufsize * sizeof(char*));
+      if (!tokens) {
+		free(tokens_backup);
+        fprintf(stderr, "erreur: allocation error\n");
+        exit(EXIT_FAILURE);
+      }
+    }
+
+    token = strtok(NULL, TOK_DELIM);
+  }
+  tokens[position] = NULL;
+  return tokens;
+}
+
+void printChemin() {
+  char chemin[1024];
+  getcwd(chemin, sizeof(chemin));
+  printf("\nChemin : %s", chemin);
+}
 
 /* -------- HELP -------- */
 void help(char **args){
   printf(" \t\tSHELL Polytech Paris Saclay \n");
   printf("\t\t-----------------------------\n");
-  printf("\t\tréalisé par Natanael et Bilail\n");
+  printf("\t\tréalisé par Natanael et Bilail\n\n\n");
+  printf("Liste des commandes : \n"
+    "- cd [chemin]\n"
+    "- ls\n"
+    "- cp [source] [destination] \n"
+    "- exit\n"
+    "- help\n ");
 }
 
 int  main(int argc, char ** argv) {
 
-  /* Liste des commandes 
-  - cd
-  - ls
-  - cp
-  - exit 
-  - help 
-  */
 
   init_shell();
+
+  printf("\n\t\t-----------------------------\n");
   printf(" \t\tSHELL Polytech Paris Saclay \n");
   printf("\t\t-----------------------------\n");
-  printf("\t\tréalisé par Natanael et Bilail\n");
+  printf("\t\tréalisé par Natanael et Bilail\n\n");
+  printf("\t\t==============================\n");
 
 
   char *line;
@@ -643,18 +690,29 @@ int  main(int argc, char ** argv) {
 
   while(1)
   {
-    printf("Polytech Paris Saclay > ");
+    printChemin();
+    printf(" Polytech Paris Saclay > ");
     line = read_line();
-    printf(line);
+    args = split_line(line);
+    /*printf(line);
+    printf("line[0] :  %d \n" , line[0]);
+    printf("line[1] :  %d \n" , line[1]);
+    printf("line[2] :  %d \n" , line[2]);*/
 
-    if(strcmp(argv[0],"help")==0){
-      help(argv);
+
+  printf("args[0] :  %s \n" , args[0]);
+  printf("args[1] :  %s \n" , args[1]);
+  printf("args[2] :  %s \n" , args[2]);
+
+
+    if(strcmp(args[0],"help")==0){
+      help(args);
     }
       /* -- -Execution de la fonction CP --*/
-    if (strcmp(argv[0],"cp")==0){
+    if (strcmp(args[0],"cp")==0){
       if (argc == 3){
         // On recupere les entrée systemes
-        cp(argv[1], argv[2]);
+        cp(args[1], args[2]);
       }
       else {
         // il faut un src et un dest
@@ -663,9 +721,11 @@ int  main(int argc, char ** argv) {
     }
 
     /* -- -Execution de la fonction CD --*/
-    if (strcmp(argv[0],"cd")==0){
-        cd(argv[1]);
+    if (strcmp(args[0],"cd")==0){
+        cd(args[1]);
     }
+    else if (strcmp(args[0], "exit") == 0)  // si on tape exit      
+			return 0;            //   on sort du programme 
 
 
   }
