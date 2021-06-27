@@ -424,7 +424,7 @@ void  parse(char *line, char **argv, int  *tokens) {
 			}
 			*line++ = '\0';     /* replace white spaces with NULL terminator   */
 		}
-	         /* save the argument position     */ 
+	         /* save the argument pos     */ 
 		if(*line != '<' && *line != '>' && *line != '|') {
 			*argv++ = line; 
 			(*tokens)++;
@@ -575,6 +575,44 @@ void cp(const char *src , const char *dest){
     }
 }
 
+char *read_line() {
+  int bufsize = 1024;
+  int pos = 0;
+  char *buffer = malloc(sizeof(char) * bufsize);
+  int c;
+
+  if (!buffer) {
+    fprintf(stderr, "erreur: allocation error\n");
+    exit(EXIT_FAILURE);
+  }
+  while (1) {
+
+    // ON lit un caractère 
+    c = getchar();
+
+    if (c == EOF) {
+      exit(EXIT_SUCCESS);
+    } else if (c == '\n') { // on est arrivé à la fin 
+      buffer[pos] = '\0';
+      return buffer;
+    } else { // on recupere le caractère 
+      buffer[pos] = c;
+    }
+    pos++;
+
+    // Si le buffer n'est pas assez grand 
+    if (pos >= bufsize) {
+      bufsize += 1024;
+      buffer = realloc(buffer, bufsize);
+      if (!buffer) {
+        fprintf(stderr, "erreur: allocation error\n");
+        exit(EXIT_FAILURE);
+      }
+    }
+  }
+}
+
+
 /* -------- HELP -------- */
 void help(char **args){
   printf(" \t\tSHELL Polytech Paris Saclay \n");
@@ -597,8 +635,17 @@ int  main(int argc, char ** argv) {
   printf("\t\t-----------------------------\n");
   printf("\t\tréalisé par Natanael et Bilail\n");
 
+
+  char *line;
+  char **args;
+  int status;
+
+
   while(1)
   {
+    printf("Polytech Paris Saclay > ");
+    line = read_line();
+    printf(line);
 
     if(strcmp(argv[0],"help")==0){
       help(argv);
