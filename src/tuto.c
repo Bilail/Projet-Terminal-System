@@ -1,5 +1,3 @@
-#define _POSIX_SOURCE
-#define _XOPEN_SOURCE_EXTENDED 1
 #include <sys/types.h>
 #include <stdio.h>
 #include <string.h>
@@ -14,7 +12,7 @@
 #include <ctype.h>
 #include <errno.h>
 
-# define WAIT_ANY -1
+//# define WAIT_ANY -1
 /*      Nos Structure de données      */
 /* Processus   */
 typedef struct process
@@ -132,6 +130,112 @@ init_shell()
       /* Sauvegarder les attributs de terminal par défaut pour le shell.  */
       tcgetattr (shell_terminal, &shell_tmodes);
     }
+}
+
+job * job_initialize (char **argv, int  num_tokens, int *foreground) {
+	job * j;
+	process * p;
+	char ** command;
+	int i, counter,test;
+	
+	j = (job *) malloc (sizeof(job));
+	j->first_process = NULL;
+	j->stdin = NULL;
+	j->stdout = NULL;
+	command = (char **) malloc (sizeof(char **) * (num_tokens + 1));
+	
+	/*	Checks if argument is intended to run in the background */
+	if (strcmp(argv[num_tokens - 1], "&") == 0) {
+		*foreground = 0;
+		num_tokens--;
+	}
+	else 
+		*foreground = 1;
+
+	/*	Check incoming parsed stdin for piping and or redirection */
+	counter = 0;		//  Used to keep track of individual command tokens
+	for ( i = 0; i < num_tokens; i++) {		
+		if (strcmp(argv[i], "|") == 0) {
+			if (!j->first_process) {
+				j->first_process = (process *) malloc (sizeof(process));
+				j->first_process->argv = (char ** ) malloc (counter * 100);  // arbitrarily large
+				for ( test = 0; test < counter; test++) 
+					j->first_process->argv[test] = command[test];
+				j->first_process->argv[test] = '\0';
+				j->first_process->next = NULL;
+			}	
+			else {
+				p = j->first_process; 
+				while (p->next)
+					p = p->next;
+				p->next = (process *) malloc (sizeof(process));
+				p->next->argv = (char ** ) malloc (counter * 100);
+				p = p->next;
+				for ( test = 0; test < counter; test++) 
+					p->argv[test] = command[test];
+				p->argv[test] = '\0';
+				p->next = NULL;				
+			}
+			/*	Clear data stored in command and begin storing */
+			memset(command, '\0', sizeof(char**) * num_tokens);	
+			counter = 0;
+		}		
+		else if(strcmp(argv[i],  "<") == 0) {
+			if((j->first_process)  || (num_tokens <= i + 1 )) {
+				printf("ERROR: Unable to redirect files in this manner\n");
+				return NULL;
+			}			
+			j->stdin = argv[++i];
+			if (num_tokens == i + 1) {
+				j->first_process = (process *) malloc (sizeof(process));
+				j->first_process->argv = (char ** ) malloc (counter * 100);
+				for ( test = 0; test < counter; test++) 
+					j->first_process->argv[test] = command[test];
+				j->first_process->argv[test] = '\0';
+				j->first_process->next = NULL;
+				return j;
+			}
+		}
+		else if(strcmp(argv[i],  ">") == 0) {
+			if ( i + 2 == num_tokens){		//  There was a token specified for redirection
+				j->stdout = argv[i + 1];
+				command[counter] = '\0';
+				if (!j->first_process) {
+					j->first_process = (process *) malloc (sizeof(process));
+					j->first_process->argv = command;
+				}
+				else {
+					p = j->first_process; 
+					while (p->next)
+						p = p->next;
+					p->next = (process *) malloc (sizeof(process));
+					p = p->next;
+					p->next = NULL;
+					p->argv = command;
+				} 
+				return j;
+			}
+			else {
+				printf("ERROR: Incorrect specification of files\n");
+				return NULL;
+			}
+		} 
+		else
+			command[counter++] = argv[i];
+	}
+	command[counter] = '\0';
+	if (!j->first_process) {
+		j->first_process = (process *) malloc (sizeof(process));
+		j->first_process->argv = command;
+	}
+	else {
+		p = j->first_process; 
+		while (p->next)
+			p = p->next;
+		p->next = (process *) malloc (sizeof(process));
+		p->next->argv = command;
+	} 
+	return j;
 }
 
 
@@ -411,6 +515,10 @@ void launch_job (job *j, int foreground) // Pour lancer un job
     put_job_in_background (j, 0); // on le place en arrière plan 
 }
 
+// Supprimer les travaux terminés de la liste des travaux actifs
+void free_job(job * j) {
+	free (j);
+}
 
 
 void  parse(char *line, char **argv, int  *tokens) {
@@ -461,7 +569,7 @@ void cd (char * dir) {
 	char path[100];
 	
 	if (dir != NULL) {
-		getcwd(path, sizeof(path));     //  ON recupere le repertoire actuelle
+		getcwd(path, sizeof(path));     //  On recupere le repertoire actuelle
     strncat(path, "/", 1);
     size_t length=strlen(path);
 		strncat(path, dir, length-1);		//  On ajoute le nouveau chemin
@@ -659,6 +767,34 @@ void printChemin() {
   getcwd(chemin, sizeof(chemin));
   printf("\nChemin : %s", chemin);
 }
+/*
+void ls()
+{
+  char dir[2048];
+  getcwd(dir, sizeof(dir));
+	//Here we will list the directory
+	struct dirent *d;
+	DIR *dh = opendir(dir);
+	if (!dh)
+	{
+		if (errno = ENOENT)
+		{
+			//If the directory is not found
+			perror("Directory doesn't exist");
+		}
+		else
+		{
+			//If the directory is not readable then throw error and exit
+			perror("Unable to read directory");
+		}
+		exit(EXIT_FAILURE);
+	}
+	//While the next entry is not readable we will print directory files
+	while ((d = readdir(dh)) != NULL)
+	{
+		printf("%s  ", d->d_name);
+  }
+}*/
 
 /* -------- HELP -------- */
 void help(char **args){
@@ -673,8 +809,17 @@ void help(char **args){
     "- help\n ");
 }
 
+
 int  main(int argc, char ** argv) {
 
+/* --- Initialition ---*/
+  char *line;
+  char **args;
+  int status;
+	char * p;
+	int tokens, foreground;
+	int * ptokens =&tokens;
+	int * pforeground =&foreground;
 
   init_shell();
 
@@ -691,17 +836,16 @@ int  main(int argc, char ** argv) {
   printf("\t\t==============================\n");
 
 
-  char *line;
-  char **args;
-  int status;
-
-
   while(1)
   {
+
     printChemin();
     printf(" --- Polytech Paris Saclay > ");
     line = read_line();
     args = split_line(line);
+    if (argc != 1){
+      return 0;
+    }
 
   /*printf("args[0] :  %s \n" , args[0]);
   printf("args[1] :  %s \n" , args[1]);
@@ -730,9 +874,20 @@ int  main(int argc, char ** argv) {
     if (strcmp(args[0],"cd")==0){
         cd(args[1]);
     }
-    else if (strcmp(args[0], "exit") == 0)  // si on tape exit
+    /*else if (strcmp(args[0],"ls")){
+      ls();
+    }*/
+    else if (strcmp(args[0], "exit") == 0){  // si on tape exit
     printf(" Merci, en revoir ^^ \n") ;    
 			return 0;            //   on sort du programme 
   }
+  else {
+    if((first_job = job_initialize(argv, tokens, pforeground)) != NULL){
+      launch_job(first_job, foreground);
+      free_job(first_job);
+      }  
+    }
+  }
   return 0;
+
 }
