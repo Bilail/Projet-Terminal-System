@@ -500,7 +500,7 @@ void cpfile(const char *src , const char *dest){
     }
     close(fdest);
     close(fsrc);
-
+    return;
 
 }
 
@@ -556,7 +556,7 @@ void cprep(const char *src , const char *dest){
     
     closedir(fsrc);
     closedir(fdest);
-
+    return;
 }
 
 
@@ -573,6 +573,8 @@ void cp(const char *src , const char *dest){
     else {
         cpfile(src, dest);          // Sinon on utilise cpfile
     }
+
+    return;
 }
 
 #define BUFFSIZE 1024
@@ -590,7 +592,7 @@ char *read_line() {
   }
   while (1) {
 
-    // ON lit un caractère 
+    // On lit un caractère 
     c = getchar();
 
     if (c == EOF) {
@@ -679,7 +681,13 @@ int  main(int argc, char ** argv) {
   printf("\n\t\t-----------------------------\n");
   printf(" \t\tSHELL Polytech Paris Saclay \n");
   printf("\t\t-----------------------------\n");
-  printf("\t\tréalisé par Natanael et Bilail\n\n");
+  printf(" _____   _____   _      __    __  _____   _____   _____   _   _ \n" 
+"|  _  \\ /  _  \\ | |     \\ \\  / / |_   _| | ____| /  ___| | | | | \n"
+"| |_| | | | | | | |      \\ \\/ /    | |   | |__   | |     | |_| | \n"
+"|  ___/ | | | | | |       \\  /     | |   |  __|  | |     |  _  | \n"
+"| |     | |_| | | |___    / /      | |   | |___  | |___  | | | | \n"
+"|_|     \\_____/ |_____|  /_/       |_|   |_____| \\_____| |_| |_| \n");
+  printf("\n\t\tréalisé par Natanael et Bilail\n\n");
   printf("\t\t==============================\n");
 
 
@@ -691,18 +699,15 @@ int  main(int argc, char ** argv) {
   while(1)
   {
     printChemin();
-    printf(" Polytech Paris Saclay > ");
+    printf(" --- Polytech Paris Saclay > ");
     line = read_line();
     args = split_line(line);
-    /*printf(line);
-    printf("line[0] :  %d \n" , line[0]);
-    printf("line[1] :  %d \n" , line[1]);
-    printf("line[2] :  %d \n" , line[2]);*/
 
-
-  printf("args[0] :  %s \n" , args[0]);
+  /*printf("args[0] :  %s \n" , args[0]);
   printf("args[1] :  %s \n" , args[1]);
   printf("args[2] :  %s \n" , args[2]);
+  printf("args[3] :  %s \n" , args[3]);
+  printf("args[4] :  %s \n" , args[4]);*/
 
 
     if(strcmp(args[0],"help")==0){
@@ -710,24 +715,24 @@ int  main(int argc, char ** argv) {
     }
       /* -- -Execution de la fonction CP --*/
     if (strcmp(args[0],"cp")==0){
-      if (argc == 3){
+
+      if (args[3] == NULL && args[2] != NULL && args[1] != NULL){
         // On recupere les entrée systemes
         cp(args[1], args[2]);
+
       }
       else {
         // il faut un src et un dest
         printf(" Il faut entrer deux arguments ! \n");
       }
     }
-
     /* -- -Execution de la fonction CD --*/
     if (strcmp(args[0],"cd")==0){
         cd(args[1]);
     }
-    else if (strcmp(args[0], "exit") == 0)  // si on tape exit      
+    else if (strcmp(args[0], "exit") == 0)  // si on tape exit
+    printf(" Merci, en revoir ^^ \n") ;    
 			return 0;            //   on sort du programme 
-
-
   }
   return 0;
 }
