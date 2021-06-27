@@ -533,22 +533,21 @@ void cprep(const char *src , const char *dest){
 			continue ;
         
         else {
-            	strcpy(path_dest,dest); // On copie dans path_dest le chemin de dest 
-              strcpy(path_src,src); // On copie dans path_src le chemin de src 
+          strcpy(path_dest,dest); // On copie dans path_dest le chemin de dest 
+          strcpy(path_src,src); // On copie dans path_src le chemin de src 
 
-           		strcpy(filename, pd->d_name); //on recupere le nom du fichier sur lequel pointe pd
-            	strcat(path_dest,"/");   // On fais la même chose pour path_dest 
-            	strcat(path_dest,filename);
-           		strcat(path_src,filename); // on lui ajoute ensuite le nom du fichier pointe
-           		strcat(path_src,"/"); // on rajoute / au chemin path_src
-
-
+          strcpy(filename, pd->d_name); //on recupere le nom du fichier sur lequel pointe pd
+          strcat(path_dest,"/");   // On fais la même chose pour path_dest 
+        	strcat(path_dest,filename);
+          strcat(path_src,filename); // on lui ajoute ensuite le nom du fichier pointe
+          strcat(path_src,"/"); // on rajoute / au chemin path_src
+          
 			    stat(path_src,&info); //on recupere les infos du fichier 
 
 			if(S_ISDIR(info.st_mode)!=0){ // si c'est un repertoire
 			//if(pd->d_type == DT_DIR){ // si c'est un repertoire avec autre methode
-                mkdir(path_dest, 0777); // On crée le fichier à l'emplacement path_dest 
-				cprep(path_src,path_dest); // on copie les fichiers à l'interieur du repertoire de maniere recursive 
+          mkdir(path_dest, 0777); // On crée le fichier à l'emplacement path_dest 
+				  cprep(path_src,path_dest); // on copie les fichiers à l'interieur du repertoire de maniere recursive 
 			}
 			else { // si c'est un fichier : 
         cpfile(path_src,path_dest); // on reutilise la fonction de l'etape 2 
@@ -741,7 +740,6 @@ int  main(int argc, char ** argv) {
       if (args[3] == NULL && args[2] != NULL && args[1] != NULL){
         // On recupere les entrée systemes
         cp(args[1], args[2]);
-
       }
       else {
         // il faut un src et un dest
@@ -762,8 +760,6 @@ int  main(int argc, char ** argv) {
       launch_job(first_job, foreground);
       free_job(first_job);
       }  */
-    else if (argv[0] == '\0')
-			continue;
     else{
       printf(" /!\\ commande non reconnu\n");
       }
