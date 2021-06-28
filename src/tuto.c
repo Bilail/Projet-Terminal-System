@@ -49,6 +49,7 @@ job * job_initialize (char **argv, int  num_tokens, int *foreground) {
 	process * p;
 	char ** command;
 	int i, counter,test;
+   printf("on rentre dans la fonction job_initialize\n");
 	
 	j = (job *) malloc (sizeof(job));
 	j->first_process = NULL;
@@ -56,6 +57,8 @@ job * job_initialize (char **argv, int  num_tokens, int *foreground) {
 	j->output = NULL;
 	command = (char **) malloc (sizeof(char **) * (num_tokens + 1));
 	
+ printf("initialisation des variable de job_initialize \n");
+
 	/*	Checks if argument is intended to run in the background */
 	if (strcmp(argv[num_tokens - 1], "&") == 0) {
 		*foreground = 0;
@@ -147,6 +150,7 @@ job * job_initialize (char **argv, int  num_tokens, int *foreground) {
 		p->next = (process *) malloc (sizeof(process));
 		p->next->argv = command;
 	} 
+   printf("on sors de la fonction job_initialize\n");
 	return j;
 }
 
@@ -455,7 +459,7 @@ void launch_process (process *p, pid_t pgid,
   exit (1);
 }
 
-void launch_job (job *j, int foreground) // Pour lancer un job 
+void launch_job2(job *j, int foreground) // Pour lancer un job 
 {
   process *p; // on a un process
   pid_t pid;
@@ -508,7 +512,7 @@ void launch_job (job *j, int foreground) // Pour lancer un job
       infile = mypipe[0];
     }
 
-  format_job_info (j, "launched");
+  format_job_info(j, "launched");
 
   if (!shell_is_interactive)
     wait_for_job (j); // on attend le prochain job 
@@ -516,6 +520,91 @@ void launch_job (job *j, int foreground) // Pour lancer un job
     put_job_in_foreground (j, 0); // on le place au 1er plan 
   else
     put_job_in_background (j, 0); // on le place en arrière plan 
+}
+
+void launch_job (job *j, int foreground) {
+	process *p;
+	pid_t pid;
+	int mypipe[2], infile, outfile;
+    printf("on rentre dans la fonction laucn_job\n");
+  	if (j->input){
+  		if((infile = open(j->input, O_RDONLY))< 0) {
+  			printf("ERROR: Could not open read file\n");
+			return;
+		}
+	}
+  	else
+		infile = STDIN_FILENO;
+	for (p = j->first_process; p; p = p->next) {
+           /* Set up pipes, if necessary.  */
+		if (p->next){
+			if (pipe (mypipe) < 0) {  /*	If pipe fails */
+				printf("ERROR: Unable to pipe input\n");
+				return;
+			}
+			outfile = mypipe[1];
+		}
+		else if (j->output) {
+			outfile = open(j->output, O_RDWR | O_CREAT | O_TRUNC, S_IWUSR | S_IRUSR);
+		}
+		else
+			outfile = STDOUT_FILENO;
+           /* Fork the child processes.  */
+		pid = fork ();
+		if (pid == 0) {
+     	       /* This is the child process.  */
+			if (shell_is_interactive) {
+				signal (SIGINT, SIG_DFL);
+				signal (SIGQUIT, SIG_DFL);
+				signal (SIGTSTP, SIG_DFL);
+				signal (SIGTTIN, SIG_DFL);
+				signal (SIGTTOU, SIG_DFL);
+				signal (SIGCHLD, SIG_DFL);					
+				pid = getpid ();
+				if (j->pgid == 0) 
+					j->pgid = pid;
+				setpgid (pid, j->pgid);
+				if (foreground)
+					tcsetpgrp (shell_terminal, j->pgid);			
+			}
+			if (infile != STDIN_FILENO) {
+				if(close(STDIN_FILENO) < 0) 
+					printf("ERROR: Could not close STDIN\n");
+				if(dup(infile) != STDIN_FILENO)
+					printf("ERROR: Could not dup infile\n");
+			}
+			if (outfile != STDOUT_FILENO) {
+				if (close(STDOUT_FILENO) < 0)
+					printf("ERROR: Could not close STDOUT\n");			
+				if (dup (outfile) != STDOUT_FILENO)
+					printf("ERROR: dup outfile\n");
+			}	
+			if (execvp (p->argv[0], p->argv) < 0) 
+				printf("ERROR: Could not execute command\n");
+			exit (1);
+		}
+		else if (pid < 0) {
+     	          /* The fork failed.  */
+			printf("ERROR: forking child process failed\n");
+			exit (1);
+		}
+		else {
+     	         /*  This is the parent process.  */ 	      
+			p->pid = pid;
+			if (shell_is_interactive) {
+				if (!j->pgid)
+	         			j->pgid = pid;
+         			setpgid (pid, j->pgid); 	    
+			}
+		}
+	if (infile != STDIN_FILENO)
+		close(infile);
+	if (outfile != STDOUT_FILENO)
+		close(outfile);
+	infile = mypipe[0];
+	}
+	if (foreground)
+		put_job_in_foreground(j,0);
 }
 
 // Supprimer les travaux terminés de la liste des travaux actifs
@@ -929,13 +1018,16 @@ int  main(int argc, char ** argv) {
     printf(" Merci, en revoir ^^ \n") ;    
 			return 0;            //   on sort du programme 
   }
-  /*else {
-      launch_job(first_job, foreground);
-      free_job(first_job);
-      }  */
-    else{
+  else {
+    printf("On lance un job\n");
+      if ((first_job = job_initialize(argv, tokens, pforeground)) != NULL) {
+				launch_job	(first_job, foreground);
+				free_job(first_job);
+			}
+      }  
+    /*else{
       printf(" /!\\ commande non reconnu\n");
-      }
+      }*/
     }
   return 0;
 
