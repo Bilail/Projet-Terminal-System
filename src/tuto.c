@@ -63,6 +63,8 @@ job * job_initialize (char **argv, int  num_tokens, int *foreground) {
 	if (strcmp(argv[num_tokens - 1], "&") == 0) {
 		*foreground = 0;
 		num_tokens--;
+    printf("test1");
+    //flush(stdout);
 	}
 	else 
 		*foreground = 1;
@@ -434,10 +436,10 @@ void launch_process (process *p, pid_t pgid,
       signal (SIGTTIN, SIG_DFL);
       signal (SIGTTOU, SIG_DFL);
       signal (SIGCHLD, SIG_DFL);
-    }
+    
 
   /* Définir les canaux d'entrée/sortie standard du nouveau processus.  */
-  if (infile != STDIN_FILENO)
+  /*if (infile != STDIN_FILENO)
     {
       dup2 (infile, STDIN_FILENO);
       close (infile);
@@ -451,8 +453,28 @@ void launch_process (process *p, pid_t pgid,
     {
       dup2 (errfile, STDERR_FILENO);
       close (errfile);
-    }
-
+    }*/
+    if (infile != STDIN_FILENO) {
+				if(close(STDIN_FILENO) < 0) 
+					printf("ERROR: Could not close STDIN\n");
+				if(dup(infile) != STDIN_FILENO)
+					printf("ERROR: Could not dup infile\n");
+			}
+			if (outfile != STDOUT_FILENO) {
+				if (close(STDOUT_FILENO) < 0)
+					printf("ERROR: Could not close STDOUT\n");			
+				if (dup (outfile) != STDOUT_FILENO)
+					printf("ERROR: dup outfile\n");
+			}	
+			if (execvp (p->argv[0], p->argv) < 0) 
+				printf("ERROR: Could not execute command\n");
+			exit (1);
+		}
+		/*else if (pid < 0) {
+     	          // The fork failed.  
+			printf("ERROR: forking child process failed\n");
+			exit (1);
+    }*/
   /* Exécutez le nouveau processus.  Assurez-vous que nous sortons.  */
   execvp (p->argv[0], p->argv);
   perror ("execvp");
@@ -464,7 +486,7 @@ void launch_job2(job *j, int foreground) // Pour lancer un job
   process *p; // on a un process
   pid_t pid;
   int mypipe[2], infile, outfile;
-
+  printf("on rentre dans la fonction launch_job2\n");
   infile = j->stdin;  // On recupere l'entrée 
   for (p = j->first_process; p; p = p->next) // On parcours tous les process
     {
@@ -526,7 +548,7 @@ void launch_job (job *j, int foreground) {
 	process *p;
 	pid_t pid;
 	int mypipe[2], infile, outfile;
-    printf("on rentre dans la fonction laucn_job\n");
+    printf("on rentre dans la fonction launch_job\n");
   	if (j->input){
   		if((infile = open(j->input, O_RDONLY))< 0) {
   			printf("ERROR: Could not open read file\n");
@@ -552,7 +574,7 @@ void launch_job (job *j, int foreground) {
            /* Fork the child processes.  */
 		pid = fork ();
 		if (pid == 0) {
-     	       /* This is the child process.  */
+     	 /*      // This is the child process.  
 			if (shell_is_interactive) {
 				signal (SIGINT, SIG_DFL);
 				signal (SIGQUIT, SIG_DFL);
@@ -581,8 +603,11 @@ void launch_job (job *j, int foreground) {
 			}	
 			if (execvp (p->argv[0], p->argv) < 0) 
 				printf("ERROR: Could not execute command\n");
-			exit (1);
+			exit (1);*/
+      launch_process (p, j->pgid, infile,
+                        outfile, j->stderr, foreground); // on execute le process
 		}
+    
 		else if (pid < 0) {
      	          /* The fork failed.  */
 			printf("ERROR: forking child process failed\n");
@@ -602,6 +627,7 @@ void launch_job (job *j, int foreground) {
 	if (outfile != STDOUT_FILENO)
 		close(outfile);
 	infile = mypipe[0];
+  
 	}
 	if (foreground)
 		put_job_in_foreground(j,0);
@@ -955,16 +981,18 @@ void help(){
 }
 
 
-int  main(int argc, char ** argv) {
+int  main(int argc, char ** argvFile) {
 
 /* --- Initialition ---*/
-  char *line;
-  char **args;
+  char line[1024];
+  char *argv[64];
   int status;
 	char * p;
 	int tokens, foreground;
 	int * ptokens =&tokens;
 	int * pforeground =&foreground;
+
+  int input_from_file = ftell(stdin);		/* check if input is coming from file */
 
   init_shell();
 
@@ -984,24 +1012,37 @@ int  main(int argc, char ** argv) {
   while(1)
   {
 
-    printChemin();
+    /*printChemin();
     printf(" --- Polytech Paris Saclay > ");
     line = read_line();
-    args = split_line(line);
+    args = split_line(line);*/
 
+    if(input_from_file < 0){	/*	stdin is coming from user not file */
+			  printChemin();
+			  printf(" - Polytech Paris Saclay >");        /*   display a prompt             */   	             	
+		
+			  memset (line, '\0', sizeof(line));		// zero line, (fills array with null terminator)
+       	memset (argv, '\0', sizeof(argv));
+
+        if (!fgets(line, sizeof(line), stdin)) 	{printf("\n"); return 0;} }	// Exit upon ctrl-D
+     		if(strlen(line) == 1) { continue;}	//	 check for empty string aka 'enter' is pressed without input
+	
+    if ((p = strchr(line, '\n')) != NULL)	//	remove '\n' from the end of 'line'
+			*p = '\0';
+    parse (line, argv, ptokens);
     if (argc == 0){
       continue;
     }
 
-    if(strcmp(args[0],"help")==0){
+    if(strcmp(argv[0],"help")==0){
       help();
     }
       /* -- -Execution de la fonction CP --*/
-    else if (strcmp(args[0],"cp")==0){
+    else if (strcmp(argv[0],"cp")==0){
 
-      if (args[3] == NULL && args[2] != NULL && args[1] != NULL){
+      if (argv[3] == NULL && argv[2] != NULL && argv[1] != NULL){
         // On recupere les entrée systemes
-        cp(args[1], args[2]);
+        cp(argv[1], argv[2]);
       }
       else {
         // il faut un src et un dest
@@ -1009,19 +1050,19 @@ int  main(int argc, char ** argv) {
       }
     }
     /* -- -Execution de la fonction CD --*/
-    else if (strcmp(args[0],"cd") == 0){
-        cd(args[1]);
+    else if (strcmp(argv[0],"cd") == 0){
+        cd(argv[1]);
       }
     /*else if (strcmp(args[0],"ls") == 0){
       ls(); } */
-    else if (strcmp(args[0], "exit") == 0){  // si on tape exit
+    else if (strcmp(argv[0], "exit") == 0){  // si on tape exit
     printf(" Merci, en revoir ^^ \n") ;    
 			return 0;            //   on sort du programme 
   }
   else {
     printf("On lance un job\n");
       if ((first_job = job_initialize(argv, tokens, pforeground)) != NULL) {
-				launch_job	(first_job, foreground);
+				launch_job2(first_job, foreground);
 				free_job(first_job);
 			}
       }  
