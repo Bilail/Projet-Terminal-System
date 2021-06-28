@@ -20,51 +20,65 @@ int shell_terminal;
 int shell_is_interactive;
 struct termios shell_tmodes;
 
-	/*	Make sure the shell is running interactively as the
-	foreground job before proceeding	*/
+/* --------- Initialisation du shell ------------------*/
+
+	/* On doit s'assurer que le shell est interractive 
+        et en arrière plan */
+
 void init_shell () {     
-       /* See if we are running interactively.  */
+    //On regarde si il est interractive   
 	shell_terminal = STDIN_FILENO;
 	shell_is_interactive = isatty (shell_terminal);
 
 	if (shell_is_interactive) {
-		while (tcgetpgrp (shell_terminal) != (shell_pgid = getpgrp ()))
-			kill (- shell_pgid, SIGTTIN);	
+		// Boucle jusqu'à ce que notre shell soit en arrière plan  
+      // tcgetpgrp : permet de recuperer un ID que l'on compare avec celui du premier plan actuel */
+      while (tcgetpgrp (shell_terminal) != (shell_pgid = getpgrp ()))
+			kill (- shell_pgid, SIGTTIN);
+
+		/* Ignorer les signaux interactifs et de contrôle du travail
+        	Pour ne pas s'arrerter par accident  */
 		signal (SIGQUIT, SIG_IGN);
 		signal (SIGTSTP, SIG_IGN);
 		signal (SIGTTIN, SIG_IGN);
 		signal (SIGTTOU, SIG_IGN);
 		signal (SIGCHLD, SIG_IGN);
+
+		// Se placer dans son propre groupe de processus 
 		shell_pgid = getpid();
+		// setpgid : Définir l'ID du groupe de processus pour le contrôle des travaux
 		if (setpgid (shell_pgid, shell_pgid) < 0)
 			{
           perror ("Couldn't put the shell in its own process group");
           exit (1);
         }
-		/*	Grab control of the terminal	*/
+		// On prend le contrôle du terminal. 
 		tcsetpgrp(shell_terminal, shell_pgid);
-		/*	Save default terminal attributes for shell. */
+		//Sauvegarder les attributs de terminal par défaut pour le shell. 
 		tcgetattr (shell_terminal, &shell_tmodes);
 	}	
 }
 
+/*      Nos Structure de données      */
+	/* Processus   */
+
 typedef struct process {
-	struct process *next;       /* next process in pipeline */
-	char **argv;                /* for exec */
+	struct process *next;       /* pointeur vers le prochain processus  */
+	char **argv;                /* pour executer  */
 	pid_t pid;                  /* process ID */
 } process;
      
-     /* A job is a pipeline of processes.  */
+     /* Job - Liste de processus   */
 typedef struct job {
-	struct job *next;           /* next active job */
-	process *first_process;     /* list of processes in this job */
+	struct job *next;           /* pointeur vers le prochain job */
+	process *first_process;     /* pointeur vers les processus du job - nottament le 1er */
 	pid_t pgid;                 /* process group ID */
 	struct termios tmodes;      /* saved terminal modes */
 	char * input;		 /* file i/o channels */
 	char * output; 
 } job;
 
-/* The active jobs are linked into a list.  This is its head.   */
+/* On initialise le job - pour le moment il ne pointe rien */   
 job *first_job = NULL;
 
 	/*  Initializing a job */
@@ -352,11 +366,11 @@ int  main(int argc, char ** argvFILE) {
 	
 	init_shell();	
 	while (1) {                   /* repeat until done ....         */
-		if(input_from_file < 0)		/*	stdin is coming from user not file */
+		if(input_from_file < 0){	/*	stdin is coming from user not file */
 			printf("Polytech Paris Saclay >");        /*   display a prompt             */   	             	
 		memset (line, '\0', sizeof(line));		// zero line, (fills array with null terminator)
           memset (argv, '\0', sizeof(argv));
-          if (!fgets(line, sizeof(line), stdin)) 	{printf("\n"); return 0;}	// Exit upon ctrl-D
+          if (!fgets(line, sizeof(line), stdin)) 	{printf("\n"); return 0;} }	// Exit upon ctrl-D
      	if(strlen(line) == 1) {
      		continue;	//	 check for empty string aka 'enter' is pressed without input
           }	
