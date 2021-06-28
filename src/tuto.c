@@ -616,8 +616,71 @@ void cpfile(const char *src , const char *dest){
 
 }
 
+
+int cprep( const char *source, const char *cible){
+  
+    DIR *in = opendir(source);      // on ouvre le répertoire source
+    DIR *out = opendir(cible);      // on ouvre le répertoire cible
+
+    if(out==NULL){                  // Si la cible n'existe pas
+
+        mkdir(cible,0777);          // On la crée
+
+    }
+
+    struct dirent *dp;      // déclaration de la structure représentant le prochain élément du répertoire
+    dp=readdir(in);         // on lit cet élément
+
+    struct stat path_stat;  // On déclare la structure stat qui contiendra le type de l'élément (repertoire ou fichier) dans son champ st_mode
+
+    while(dp!=NULL){        // tant qu'il y a des éléments dans le répertoire
+
+        if(strncmp(dp->d_name,".",1) == 0){     // Si le nom de l'élement commence par un point on passe au suivant
+
+            dp=readdir(in);
+            continue ;
+
+        }
+
+        char path1[50];         // le path de départ
+        char path2[50];         // le path d'arrivée
+        char nomfichier[50];      // le nom de l'élément (fichier/répertoire) à copier
+
+        strcpy(path1,source);               // On copie le nom du répertoire de départ dans le path de depart
+        strcpy(path2,cible);                // On copie le nom du répertoire d'arrivée dans le path d'arrivée
+        strcpy(nomfichier,dp->d_name);        // On copie dans nomfichier le nom du fichier représententé par le champ d_type de la structure   
+
+        strcat(path1,"/");                  // On concatène "/" au path1
+        strcat(path1,nomfichier);             // On concatène également le nom de l'élément pour avoir le path1 complet
+
+        strcat(path2,"/");                  // On concatène "/" au path2
+        strcat(path2,nomfichier);             // On concatène également le nom de l'élément pour avoir le path2 complet
+
+        
+        stat(path1, &path_stat);            // On initialise la structure sur le path 1
+        
+        //if(dp->d_type==DT_DIR)<-- On aurait pu faire ceci pour savoir si l'élément est un répertoire
+
+        if(S_ISDIR(path_stat.st_mode)){       // Si l'élément est un répertoire
+
+            mkdir(path2,0777);              // On crée sa "copie" vide
+            cprep(path1,path2);             // on y ajoute tout le contenu de répertoire source (appel récursif)
+            
+        }
+        else{
+            cpfile(path1,path2);                // Sinon on copie le fichier du répertoire source vers le répertoire cible
+        }
+
+        dp=readdir(in);                     // On passe à l'élément suivant
+        
+    }
+    closedir(in);                           // On ferme le répertoire source
+    closedir(out);                          // On ferme le répertoire cible
+
+    return 0;
+}
 //Fonction pour copier un repertoire
-void cprep(const char *src , const char *dest){
+/*void cprep(const char *src , const char *dest){
 	
 	// Copie de repertoire
 	DIR* fsrc = opendir(src);
@@ -668,7 +731,7 @@ void cprep(const char *src , const char *dest){
     closedir(fsrc);
     closedir(fdest);
     return;
-}
+}*/
 
 
 // Fonction de copie générale
