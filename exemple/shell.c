@@ -256,7 +256,7 @@ void put_job_in_foreground (job *j) {
     /* On attend que tous les process du job se termine  */
 	waitpid (WAIT_ANY, 0, WUNTRACED);
 
-      /* Un fois fini on remet le shell en premier plan   *//
+      /* Un fois fini on remet le shell en premier plan   */
 	tcsetpgrp (shell_terminal, shell_pgid);
      /* On restaures les modes du shell, si ils avaient été modfié par les process  */
   	tcgetattr (shell_terminal, &j->tmodes);
@@ -514,7 +514,7 @@ int  main(int argc, char ** argvFILE) {
 	int * ptokens =&tokens;
 	int * pforeground =&foreground;
 
-	int input_from_file = ftell(stdin);		/* check if input is coming from file */
+	int input_from_file = ftell(stdin);		/* on regarde si l'entrée vient d'un fichier */
 	
 
 	
@@ -549,6 +549,9 @@ int  main(int argc, char ** argvFILE) {
 		parse (line, argv, ptokens);		// parse input to shell
 		if (argv[0] == '\0')
 			continue;
+
+		// On regarde quelle commande a été entrée : 
+
 		else if (strcmp(argv[0], "exit") == 0)  //   on sort du programme      
 			return 0;                                  
 		else if (strcmp(argv[0], "cd") == 0) // on execute la fonction cd
@@ -556,7 +559,9 @@ int  main(int argc, char ** argvFILE) {
 		else if (strcmp(argv[0], "cp") == 0) // on execute la fonction cp
 			cp(argv[1], argv[2]);
 		else if (strcmp(argv[0], "help") == 0) // on execute la fonction cp
-			help();	             	
+			help();	
+
+		// Sinon c'est que l'on execute un programme             	
 		else {
 			if ((first_job = job_initialize(argv, tokens, pforeground)) != NULL) {
 				launch_job	(first_job, foreground);
