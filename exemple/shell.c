@@ -245,18 +245,21 @@ void  parse(char *line, char **argv, int  *tokens) {
 	*argv = '\0';                 /* mark the end of argument list  */
 }
 
+/* -------- Premier et Arrière plan ----------*/
 
 void put_job_in_foreground (job *j) {
-       /* Put the job into the foreground.  */
+	/* Mettre le job au premier plan 
+	 tcgetpgrp : permet de recuperer un ID que l'on compare avec celui du premier plan actuel 
+  	On lui donne le controle sur le shell*/
 	tcsetpgrp (shell_terminal, j->pgid);
    
-       /* Wait for it to report.  */
+    /* On attend que tous les process du job se termine  */
 	waitpid (WAIT_ANY, 0, WUNTRACED);
 
-       /* Put the shell back in the foreground.  */
+      /* Un fois fini on remet le shell en premier plan   */
 	tcsetpgrp (shell_terminal, shell_pgid);
-       /* Restore the shell's terminal modes.  */
-	tcgetattr (shell_terminal, &j->tmodes);
+     /* On restaures les modes du shell, si ils avaient été modfié par les process  */
+  	tcgetattr (shell_terminal, &j->tmodes);
 	tcsetattr (shell_terminal, TCSADRAIN, &shell_tmodes);
 }
 
@@ -389,59 +392,69 @@ void cpfile(const char *src , const char *dest){
 }
 
 //Fonction pour copier un repertoire
-void cprep(const char *src , const char *dest){
-	
-	// Copie de repertoire
-	DIR* fsrc = opendir(src);
-    DIR* fdest = opendir(dest);
 
-    if (fdest == NULL) { // Si le fichier destination n'existe pas 
-        mkdir(dest, 0777); // On le crée
+int cprep( const char *source, const char *cible){
+  
+    DIR *in = opendir(source);      // on ouvre le répertoire source
+    DIR *out = opendir(cible);      // on ouvre le répertoire cible
+
+    if(out==NULL){                  // Si la cible n'existe pas
+
+        mkdir(cible,0777);          // On la crée
+
     }
-	struct dirent *pd ;
 
+    struct dirent *dp;      // déclaration de la structure représentant le prochain élément du répertoire
+    dp=readdir(in);         // on lit cet élément
 
-    pd = readdir(fsrc);
+    struct stat path_stat;  // On déclare la structure stat qui contiendra le type de l'élément (repertoire ou fichier) dans son champ st_mode
 
-    struct stat info;
+    while(dp!=NULL){        // tant qu'il y a des éléments dans le répertoire
 
-    while( (pd = readdir(fsrc)) != NULL) // Tant qu'il y a des éléments à copier
-	{
-        char path_src[100];
-        char path_dest[100];
-        char filename[100];
+        if(strncmp(dp->d_name,".",1) == 0){     // Si le nom de l'élement commence par un point on passe au suivant
 
-        if(strncmp(pd->d_name,".",1) == 0)
-			continue ;
+            dp=readdir(in);
+            continue ;
+
+        }
+
+        char path1[50];         // le path de départ
+        char path2[50];         // le path d'arrivée
+        char nomfichier[50];      // le nom de l'élément (fichier/répertoire) à copier
+
+        strcpy(path1,source);               // On copie le nom du répertoire de départ dans le path de depart
+        strcpy(path2,cible);                // On copie le nom du répertoire d'arrivée dans le path d'arrivée
+        strcpy(nomfichier,dp->d_name);        // On copie dans nomfichier le nom du fichier représententé par le champ d_type de la structure   
+
+        strcat(path1,"/");                  // On concatène "/" au path1
+        strcat(path1,nomfichier);             // On concatène également le nom de l'élément pour avoir le path1 complet
+
+        strcat(path2,"/");                  // On concatène "/" au path2
+        strcat(path2,nomfichier);             // On concatène également le nom de l'élément pour avoir le path2 complet
+
         
-        else {
-          strcpy(path_dest,dest); // On copie dans path_dest le chemin de dest 
-          strcpy(path_src,src); // On copie dans path_src le chemin de src 
+        stat(path1, &path_stat);            // On initialise la structure sur le path 1
+        
+        //if(dp->d_type==DT_DIR)<-- On aurait pu faire ceci pour savoir si l'élément est un répertoire
 
-          strcpy(filename, pd->d_name); //on recupere le nom du fichier sur lequel pointe pd
-          strcat(path_dest,"/");   // On fais la même chose pour path_dest 
-        	strcat(path_dest,filename);
-          strcat(path_src,filename); // on lui ajoute ensuite le nom du fichier pointe
-          strcat(path_src,"/"); // on rajoute / au chemin path_src
-          
-			    stat(path_src,&info); //on recupere les infos du fichier 
+        if(S_ISDIR(path_stat.st_mode)){       // Si l'élément est un répertoire
 
-			if(S_ISDIR(info.st_mode)!=0){ // si c'est un repertoire
-			//if(pd->d_type == DT_DIR){ // si c'est un repertoire avec autre methode
-          mkdir(path_dest, 0777); // On crée le fichier à l'emplacement path_dest 
-				  cprep(path_src,path_dest); // on copie les fichiers à l'interieur du repertoire de maniere recursive 
-			}
-			else { // si c'est un fichier : 
-        cpfile(path_src,path_dest); // on reutilise la fonction de l'etape 2 
-			  }	
-      }   
-  }
-    
-    closedir(fsrc);
-    closedir(fdest);
-    return;
+            mkdir(path2,0777);              // On crée sa "copie" vide
+            cprep(path1,path2);             // on y ajoute tout le contenu de répertoire source (appel récursif)
+            
+        }
+        else{
+            cpfile(path1,path2);                // Sinon on copie le fichier du répertoire source vers le répertoire cible
+        }
+
+        dp=readdir(in);                     // On passe à l'élément suivant
+        
+    }
+    closedir(in);                           // On ferme le répertoire source
+    closedir(out);                          // On ferme le répertoire cible
+
+    return 0;
 }
-
 
 // Fonction de copie générale
 void cp(const char *src , const char *dest){
@@ -501,7 +514,7 @@ int  main(int argc, char ** argvFILE) {
 	int * ptokens =&tokens;
 	int * pforeground =&foreground;
 
-	int input_from_file = ftell(stdin);		/* check if input is coming from file */
+	int input_from_file = ftell(stdin);		/* on regarde si l'entrée vient d'un fichier */
 	
 
 	
@@ -536,6 +549,9 @@ int  main(int argc, char ** argvFILE) {
 		parse (line, argv, ptokens);		// parse input to shell
 		if (argv[0] == '\0')
 			continue;
+
+		// On regarde quelle commande a été entrée : 
+
 		else if (strcmp(argv[0], "exit") == 0)  //   on sort du programme      
 			return 0;                                  
 		else if (strcmp(argv[0], "cd") == 0) // on execute la fonction cd
@@ -543,7 +559,9 @@ int  main(int argc, char ** argvFILE) {
 		else if (strcmp(argv[0], "cp") == 0) // on execute la fonction cp
 			cp(argv[1], argv[2]);
 		else if (strcmp(argv[0], "help") == 0) // on execute la fonction cp
-			help();	             	
+			help();	
+
+		// Sinon c'est que l'on execute un programme             	
 		else {
 			if ((first_job = job_initialize(argv, tokens, pforeground)) != NULL) {
 				launch_job	(first_job, foreground);
