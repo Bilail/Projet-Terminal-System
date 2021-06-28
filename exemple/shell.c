@@ -13,6 +13,20 @@
 #include <ctype.h>
 #include <signal.h>
 
+#include <sys/types.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/wait.h>
+#include <sys/stat.h>
+#include <termios.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <fcntl.h>
+#include <dirent.h>
+#include <signal.h>
+#include <ctype.h>
+#include <errno.h>
+
 #define WAIT_ANY -1
 
 pid_t shell_pgid;
@@ -295,6 +309,8 @@ void launch_job (job *j, int foreground) {
 				if (foreground)
 					tcsetpgrp (shell_terminal, j->pgid);			
 			}
+
+			/* Gestion des entree sortie */
 			if (infile != STDIN_FILENO) {
 				if(close(STDIN_FILENO) < 0) 
 					printf("ERROR: Could not close STDIN\n");
@@ -340,6 +356,109 @@ void free_job(job * j) {
 	free (j);
 }
 
+ /* -------- Nos fonctions CD et CP ----------*/
+ 
+//Fonction pour copier un fichier
+void cpfile(const char *src , const char *dest){
+
+    /*struct stat st;      
+    fstat (fsrc =, &st);  sans chmod */
+    int fsrc = open(src, O_RDONLY); // on ouvre en lecture seulement 
+    int fdest = open(dest, O_WRONLY | O_CREAT | O_EXCL, 0666);
+
+    struct stat istat;
+    fstat(fsrc, &istat);
+    fchmod(fdest, istat.st_mode); // passer par chmod
+    
+    while(1){
+        char buffer[4096];
+        int rcnt = read(fsrc, buffer, sizeof(buffer));
+        if (rcnt == 0)
+            break;
+        while (rcnt != 0){
+        int pos = 0;
+            int wcnt = write (fdest, buffer + pos, rcnt); 
+            rcnt -= wcnt; // On enleve ce que l'on a écrit
+            pos += wcnt; // on reprend l'ecriture la ou on c'est arrété 
+        }
+    }
+    close(fdest);
+    close(fsrc);
+    return;
+
+}
+
+//Fonction pour copier un repertoire
+void cprep(const char *src , const char *dest){
+	
+	// Copie de repertoire
+	DIR* fsrc = opendir(src);
+    DIR* fdest = opendir(dest);
+
+    if (fdest == NULL) { // Si le fichier destination n'existe pas 
+        mkdir(dest, 0777); // On le crée
+    }
+	struct dirent *pd ;
+
+
+    pd = readdir(fsrc);
+
+    struct stat info;
+
+    while( (pd = readdir(fsrc)) != NULL) // Tant qu'il y a des éléments à copier
+	{
+        char path_src[100];
+        char path_dest[100];
+        char filename[100];
+
+        if(strncmp(pd->d_name,".",1) == 0)
+			continue ;
+        
+        else {
+          strcpy(path_dest,dest); // On copie dans path_dest le chemin de dest 
+          strcpy(path_src,src); // On copie dans path_src le chemin de src 
+
+          strcpy(filename, pd->d_name); //on recupere le nom du fichier sur lequel pointe pd
+          strcat(path_dest,"/");   // On fais la même chose pour path_dest 
+        	strcat(path_dest,filename);
+          strcat(path_src,filename); // on lui ajoute ensuite le nom du fichier pointe
+          strcat(path_src,"/"); // on rajoute / au chemin path_src
+          
+			    stat(path_src,&info); //on recupere les infos du fichier 
+
+			if(S_ISDIR(info.st_mode)!=0){ // si c'est un repertoire
+			//if(pd->d_type == DT_DIR){ // si c'est un repertoire avec autre methode
+          mkdir(path_dest, 0777); // On crée le fichier à l'emplacement path_dest 
+				  cprep(path_src,path_dest); // on copie les fichiers à l'interieur du repertoire de maniere recursive 
+			}
+			else { // si c'est un fichier : 
+        cpfile(path_src,path_dest); // on reutilise la fonction de l'etape 2 
+			  }	
+      }   
+  }
+    
+    closedir(fsrc);
+    closedir(fdest);
+    return;
+}
+
+
+// Fonction de copie générale
+void cp(const char *src , const char *dest){
+    
+    struct stat info;
+
+    stat(src,&info); //on recupere les infos du fichier 
+
+    if(S_ISDIR(info.st_mode)!=0){   // si c'est un répertoire on utilise cpdir
+        cprep(src,dest);
+    }
+    else {
+        cpfile(src, dest);          // Sinon on utilise cpfile
+    }
+
+    return;
+}
 // La fonction cd pour atteindre un dossier
 void cd (char * dir) {
 	char path[100];
@@ -354,6 +473,26 @@ void cd (char * dir) {
 	}
 }
 
+void printChemin() { // affiche le chemin actuelle 
+  char chemin[1024];
+  getcwd(chemin, sizeof(chemin));
+  
+  printf("%s", chemin);
+}
+
+/* -------- HELP -------- */
+void help(){
+  printf(" \t\tSHELL Polytech Paris Saclay \n");
+  printf("\t\t-----------------------------\n");
+  printf("\t\tréalisé par Natanael et Bilail\n\n\n");
+  printf("Liste des commandes : \n"
+    "- cd [chemin]\n"
+    "- ls\n"
+    "- cp [source] [destination] \n"
+    "- exit\n"
+    "- help\n ");
+}
+
 int  main(int argc, char ** argvFILE) {
 	char  line[1024];             /* the input line                 */
 	char  *argv[64];              /* the command line argument      */
@@ -364,25 +503,47 @@ int  main(int argc, char ** argvFILE) {
 
 	int input_from_file = ftell(stdin);		/* check if input is coming from file */
 	
+
+	
+  printf("\n\t\t-----------------------------\n");
+  printf(" \t\tSHELL Polytech Paris Saclay \n");
+  printf("\t\t-----------------------------\n");
+  printf(" _____   _____   _      __    __  _____   _____   _____   _   _ \n" 
+"|  _  \\ /  _  \\ | |     \\ \\  / / |_   _| | ____| /  ___| | | | | \n"
+"| |_| | | | | | | |      \\ \\/ /    | |   | |__   | |     | |_| | \n"
+"|  ___/ | | | | | |       \\  /     | |   |  __|  | |     |  _  | \n"
+"| |     | |_| | | |___    / /      | |   | |___  | |___  | | | | \n"
+"|_|     \\_____/ |_____|  /_/       |_|   |_____| \\_____| |_| |_| \n");
+  printf("\n\t\tréalisé par Natanael et Bilail\n\n");
+  printf("\t\t==============================\n");
+
+
+
 	init_shell();	
 	while (1) {                   /* repeat until done ....         */
 		if(input_from_file < 0){	/*	stdin is coming from user not file */
-			printf("Polytech Paris Saclay >");        /*   display a prompt             */   	             	
-		memset (line, '\0', sizeof(line));		// zero line, (fills array with null terminator)
-          memset (argv, '\0', sizeof(argv));
-          if (!fgets(line, sizeof(line), stdin)) 	{printf("\n"); return 0;} }	// Exit upon ctrl-D
-     	if(strlen(line) == 1) {
-     		continue;	//	 check for empty string aka 'enter' is pressed without input
-          }	
-          if ((p = strchr(line, '\n')) != NULL)	//	remove '\n' from the end of 'line'
+			printChemin();
+			printf(" - Polytech Paris Saclay >");        /*   display a prompt             */   	             	
+		
+			memset (line, '\0', sizeof(line));		// zero line, (fills array with null terminator)
+       		memset (argv, '\0', sizeof(argv));
+
+        	if (!fgets(line, sizeof(line), stdin)) 	{printf("\n"); return 0;} }	// Exit upon ctrl-D
+     		if(strlen(line) == 1) { continue;}	//	 check for empty string aka 'enter' is pressed without input
+	
+        if ((p = strchr(line, '\n')) != NULL)	//	remove '\n' from the end of 'line'
 			*p = '\0';
 		parse (line, argv, ptokens);		// parse input to shell
 		if (argv[0] == '\0')
 			continue;
-		else if (strcmp(argv[0], "exit") == 0)  // si on tape exit      
-			return 0;            //   on sort du programme                      
-		else if (strcmp(argv[0], "cd") == 0) 
-			cd (argv[1]);	             	
+		else if (strcmp(argv[0], "exit") == 0)  //   on sort du programme      
+			return 0;                                  
+		else if (strcmp(argv[0], "cd") == 0) // on execute la fonction cd
+			cd (argv[1]);
+		else if (strcmp(argv[0], "cp") == 0) // on execute la fonction cp
+			cp(argv[1], argv[2]);
+		else if (strcmp(argv[0], "help") == 0) // on execute la fonction cp
+			help();	             	
 		else {
 			if ((first_job = job_initialize(argv, tokens, pforeground)) != NULL) {
 				launch_job	(first_job, foreground);
