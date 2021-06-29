@@ -69,9 +69,6 @@ typedef struct process {
 	struct process *next;       /* pointeur vers le prochain processus  */
 	char **argv;                /* pour executer  */
 	pid_t pid;                  /* process ID */
-	int status;                 /* reported status value */
-	char stopped;               /* true si le process est  stopped */
-	char completed;             /* true si le process est completed */
 } process;
      
      /* Job - Liste de processus   */
@@ -81,14 +78,12 @@ typedef struct job {
 	pid_t pgid;                 /* process group ID */
 	struct termios tmodes;      /* saved terminal modes */
 	char * input;		 /* file i/o channels */
-	char * output;
-	int stdin, stdout, stderr; 
+	char * output; 
 } job;
 
 /* On initialise le job - pour le moment il ne pointe rien */   
 job *first_job = NULL;
-
-	/*  Initializing a job */
+/*  Initializing a job */
 job * job_initialize (char **argv, int  num_tokens, int *foreground) {
 	job * j; 			// on créer un pointeur vers un job
 	process * p;	 	// on créer un pointeur vers un process
@@ -184,7 +179,7 @@ void  parse(char *line, char **argv, int  *tokens) {
 			*line++ = '\0';     /*remplacer les espaces blancs par '\0'  */
 		}
 	         /* sauvegarder la position de l'argument      */ 
-		if(*line != '<' && *line != '>' && *line != '|') {
+		if(*line != '<' && *line != '>') {
 			*argv++ = line; 
 			(*tokens)++;
 		}
@@ -210,245 +205,118 @@ void  parse(char *line, char **argv, int  *tokens) {
 }
 
 
-/* Return 1 si tous les process du job qu el'on a donné en paramètre sont fini (complétés)  */
-int job_is_completed (job *j)
-{
-  process *p;
-    // On parcours tous les process du job 
-  for (p = j->first_process; p; p = p->next)
-    if (!p->completed) // Si l'un n'est pas fini 
-      return 0;       // On retourne 0
-  return 1;          // Sinon on retourne 1
+void put_job_in_foreground (job *j) {
+       /* Put the job into the foreground.  */
+	tcsetpgrp (shell_terminal, j->pgid);
+   
+       /* Wait for it to report.  */
+	waitpid (WAIT_ANY, 0, WUNTRACED);
+
+       /* Put the shell back in the foreground.  */
+	tcsetpgrp (shell_terminal, shell_pgid);
+       /* Restore the shell's terminal modes.  */
+	tcgetattr (shell_terminal, &j->tmodes);
+	tcsetattr (shell_terminal, TCSADRAIN, &shell_tmodes);
 }
 
 
-/* Return 1 si tous les process du job qu'on donne en paramètre sont stoppé ou fini   */
-int job_is_stopped (job *j)
-{
-  process *p;
-// On parcours tous les process du job 
-  for (p = j->first_process; p; p = p->next)
-    if (!p->completed && !p->stopped) // Si le job n'est pas complété ou stoppe 
-      return 0;                      // On retourne 0
-  return 1;                         // Sinon on retourne 1 
-}
+    /* Store the status of the process pid that was returned by waitpid.
+        Return 0 if all went well, nonzero otherwise.  */	
 
-/* Fonction stockant le status du processus identifié par pid retourné par waitpid,
-si tout s'est bien passé, retourne 0, et -1 sinon  */
+void launch_job (job *j, int foreground) {
+	process *p;
+	pid_t pid;
+	int mypipe[2], infile, outfile;
+    
+  	if (j->input){
+  		if((infile = open(j->input, O_RDONLY))< 0) {
+  			printf("ERROR: Could not open read file\n");
+			return;
+		}
+	}
+  	else
+		infile = STDIN_FILENO;
+	for (p = j->first_process; p; p = p->next) {
+           /* Set up pipes, if necessary.  */
+		if (p->next){
+			if (pipe (mypipe) < 0) {  /*	If pipe fails */
+				printf("ERROR: Unable to pipe input\n");
+				return;
+			}
+			outfile = mypipe[1];
+		}
+		else if (j->output) {
+			outfile = open(j->output, O_RDWR | O_CREAT | O_TRUNC, S_IWUSR | S_IRUSR);
+		}
+		else
+			outfile = STDOUT_FILENO;
+           /* Fork the child processes.  */
+		pid = fork ();
+		if (pid == 0) { // Equivalent à launch process
+     	       /* This is the child process.  */
+			if (shell_is_interactive) {
+				signal (SIGINT, SIG_DFL);
+				signal (SIGQUIT, SIG_DFL);
+				signal (SIGTSTP, SIG_DFL);
+				signal (SIGTTIN, SIG_DFL);
+				signal (SIGTTOU, SIG_DFL);
+				signal (SIGCHLD, SIG_DFL);					
+				pid = getpid ();
+				if (j->pgid == 0) 
+					j->pgid = pid;
+				setpgid (pid, j->pgid);
+				if (foreground)
+					tcsetpgrp (shell_terminal, j->pgid);			
+			}
 
-int mark_process_status (pid_t pid, int status)
-{
-  job *j;                   // le job auquel appartient le processus
-  process *p;               // le processus 
-
-  if (pid > 0)              // si le processus n'est pas un swapper
-    {
-      /* Update the record for the process.  */
-      for (j = first_job; j; j = j->next)                   // Parcours des jobs
-        for (p = j->first_process; p; p = p->next)          // Parcours des processus
-          if (p->pid == pid)                                // On trouve le processus correspondant
-            {
-              p->status = status;                           // On initialise son statut
-              if (WIFSTOPPED (status))                      // Si le processus a été arreté par un signal
-                p->stopped = 1;                             // mise à jour de son champ stopped
-              else
-                {
-                  p->completed = 1;                                      // Sinon màj de son champ completed
-                  if (WIFSIGNALED (status))                             // S'il s'est terminé à cause d'un signal
-                    fprintf (stderr, "%d: Terminated by signal %d.\n",
-                             (int) pid, WTERMSIG (p->status));
-                }
-              return 0;                                         // status du processus bien stocké, pas d'erreur, on retourne 0
-             }
-      fprintf (stderr, "No child process %d.\n", pid);
-      return -1;
-    }
-  else if (pid == 0 || errno == ECHILD)
-    /* No processes ready to report.  */
-    return -1;
-  else {
-    /* Other weird errors.  */
-    perror ("waitpid");
-    return -1;
-  }
-}
-
-
-/* Vérifie si il y as des processus dont l'information sur l'état est disponible,
-   bloque jusqu'à ce que tous les processus du job concerné soit arretés ou terminés  */
-void wait_for_job (job *j)
-{
-  int status;
-  pid_t pid;
-
-  do
-    pid = waitpid (WAIT_ANY, &status, WUNTRACED);             // suspendre l'éxecution
-  while (!mark_process_status (pid, status)                   // tant qu'il y a des processus dont le statut n'est pas mis à jour,
-         && !job_is_stopped (j)                               // et que tous les processus du job ne sont pas arretés ou terminés
-         && !job_is_completed (j));
-}
-
-
-/* -------- Premier et Arrière plan ----------*/
-
-void put_job_in_foreground (job *j, int cont)
-{
-  /* Mettre le job au premier plan */
-  /* tcgetpgrp : permet de recuperer un ID que l'on compare avec celui du premier plan actuel 
-  On lui donne le controle sur le shell*/
-  tcsetpgrp (shell_terminal, j->pgid);
-
-  /* Send the job a continue signal, if necessary.  */
-  if (cont)
-    {
-      tcsetattr (shell_terminal, TCSADRAIN, &j->tmodes);
-      if (kill (- j->pgid, SIGCONT) < 0)
-        perror ("kill (SIGCONT)");
-    }
-
-  /* On attend que tous les process du job se termine  */
-  wait_for_job (j);
-
-  /* Un fois fini on remet le shell en premier plan   */
-  tcsetpgrp (shell_terminal, shell_pgid);
-
-  /* On restaures les modes du shell, si ils avaient été modfié par les process  */
-  tcgetattr (shell_terminal, &j->tmodes);
-  tcsetattr (shell_terminal, TCSADRAIN, &shell_tmodes);
-}
-
-/* Mettre le job à l'arriere pla, */
-void put_job_in_background (job *j, int cont)
-{
-  /* Send the job a continue signal, if necessary.  */
-  if (cont)
-    if (kill (-j->pgid, SIGCONT) < 0)
-      perror ("kill (SIGCONT)");
-}
-
-/* Lancement d'un process */
-void launch_process (process *p, pid_t pgid,int infile, int outfile,int errfile,int foreground) {
-  pid_t pid;
-
-  if (shell_is_interactive)
-    {
-      /* Placez le processus dans le groupe de processus et donnez au groupe de processus
-         le terminal, le cas échéant.
-         Ceci doit être fait à la fois par l'interpréteur de commandes et dans les
-         processus enfants individuels à cause des conditions de course potentielles..  */
-
-		pid = getpid (); 					// on recupere son ID
-      if (pgid == 0) pgid = pid; 
-      setpgid (pid, pgid); 					// on le défini comme ID de groupe 
-      if (foreground) 						// si on est au premier plan on doit le placer au 1er plan partout
-        tcsetpgrp (shell_terminal, pgid); 	// dans le sous shell et le shell 
-
-    /* Remettre la gestion des signaux de contrôle des travaux à leur valeur par défaut.
-        Car on ne veut pas que les process enfant ignore les signaux  */
-      signal (SIGINT, SIG_DFL);
-      signal (SIGQUIT, SIG_DFL);
-      signal (SIGTSTP, SIG_DFL); // exemple arrer d'un process , il doit prevenir tout le groupe
-      signal (SIGTTIN, SIG_DFL);
-      signal (SIGTTOU, SIG_DFL);
-      signal (SIGCHLD, SIG_DFL);
- 
-    if (infile != STDIN_FILENO) {
-		if(close(STDIN_FILENO) < 0) 
-			printf("ERROR: Could not close STDIN\n");
-		if(dup(infile) != STDIN_FILENO)
+			/* Gestion des entree sortie */
+			if (infile != STDIN_FILENO) {
+				if(close(STDIN_FILENO) < 0) 
+					printf("ERROR: Could not close STDIN\n");
+				if(dup(infile) != STDIN_FILENO)
 					printf("ERROR: Could not dup infile\n");
+			}
+			if (outfile != STDOUT_FILENO) {
+				if (close(STDOUT_FILENO) < 0)
+					printf("ERROR: Could not close STDOUT\n");			
+				if (dup (outfile) != STDOUT_FILENO)
+					printf("ERROR: dup outfile\n");
+			}	
+			if (execvp (p->argv[0], p->argv) < 0) 
+				printf("ERROR: Could not execute command\n");
+			exit (1);
+		}
+		else if (pid < 0) {
+     	          /* The fork failed.  */
+			printf("ERROR: forking child process failed\n");
+			exit (1);
+		}
+		else {
+     	         /*  This is the parent process.  */ 	      
+			p->pid = pid;
+			if (shell_is_interactive) {
+				if (!j->pgid)
+	         			j->pgid = pid;
+         			setpgid (pid, j->pgid); 	    
+			}
+		}
+	if (infile != STDIN_FILENO)
+		close(infile);
+	if (outfile != STDOUT_FILENO)
+		close(outfile);
+	infile = mypipe[0];
 	}
-
-	/* Gestion des entree et sortie */
-	if (outfile != STDOUT_FILENO) {
-		if (close(STDOUT_FILENO) < 0)
-			printf("ERROR: Could not close STDOUT\n");			
-		if (dup (outfile) != STDOUT_FILENO)
-			printf("ERROR: dup outfile\n");
-		}	
-		if (execvp (p->argv[0], p->argv) < 0) 
-			printf("ERROR: Could not execute command\n");
-		exit (1);
-	}
-		
-  /* Exécutez le nouveau processus.  Assurez-vous que nous sortons.  */
-  execvp (p->argv[0], p->argv);
-  perror ("execvp");
-  exit (1);
+	if (foreground)
+		put_job_in_foreground(j);
 }
 
-
-/* Store the status of the process pid that was returned by waitpid.
-Return 0 if all went well, nonzero otherwise.  */	
-
-void launch_job(job *j, int foreground) // Pour lancer un job 
-{
-  process *p; // on a un process
-  pid_t pid;
-  int mypipe[2], infile, outfile;
-  infile = j->stdin;  // On recupere l'entrée 
-  for (p = j->first_process; p; p = p->next) // On parcours tous les process
-    {
-      if (p->next) // si il y a un next 
-        {
-          if (pipe (mypipe) < 0)
-            {
-              perror ("pipe");
-              exit (1);
-            }
-          outfile = mypipe[1];
-        }
-      else
-        outfile = j->stdout; // flux de sortie 
-
-      /* Fork the child processes.  */
-      pid = fork ();
-      if (pid == 0)
-        /* This is the child process.  */
-        launch_process (p, j->pgid, infile,
-                        outfile, j->stderr, foreground); // on execute le process
-      else if (pid < 0)
-        {
-          /* The fork failed.  */
-          perror ("fork");
-          exit (1);
-        }
-      else
-        {   // si le pid > 0 alors c'est le parent
-          /* This is the parent process.  */
-          p->pid = pid;
-          if (shell_is_interactive)
-            {
-              if (!j->pgid)
-                j->pgid = pid;
-              setpgid (pid, j->pgid); //on défini l'ID du process
-            }
-        }
-
-      /* Clean up after pipes.  */
-      if (infile != j->stdin)
-        close (infile);
-      if (outfile != j->stdout)
-        close (outfile);
-      infile = mypipe[0];
-    }
-  if (!shell_is_interactive)
-    wait_for_job (j); // on attend le prochain job 
-  else if (foreground)
-    put_job_in_foreground (j, 0); // on le place au 1er plan 
-  else
-    put_job_in_background (j, 0); // on le place en arrière plan 
-}
-
- /*    Delete terminated jobs from the active job list.  */
+      /*    Delete terminated jobs from the active job list.  */
 void free_job(job * j) {
 	free (j);
 }
 
-
  /* -------- Nos fonctions CD et CP ----------*/
  
-
 //Fonction pour copier un fichier
 void cpfile(const char *src , const char *dest){
 
@@ -480,69 +348,59 @@ void cpfile(const char *src , const char *dest){
 }
 
 //Fonction pour copier un repertoire
+void cprep(const char *src , const char *dest){
+	
+	// Copie de repertoire
+	DIR* fsrc = opendir(src);
+    DIR* fdest = opendir(dest);
 
-int cprep( const char *source, const char *cible){
-  
-    DIR *in = opendir(source);      // on ouvre le répertoire source
-    DIR *out = opendir(cible);      // on ouvre le répertoire cible
-
-    if(out==NULL){                  // Si la cible n'existe pas
-
-        mkdir(cible,0777);          // On la crée
-
+    if (fdest == NULL) { // Si le fichier destination n'existe pas 
+        mkdir(dest, 0777); // On le crée
     }
+	struct dirent *pd ;
 
-    struct dirent *dp;      // déclaration de la structure représentant le prochain élément du répertoire
-    dp=readdir(in);         // on lit cet élément
 
-    struct stat path_stat;  // On déclare la structure stat qui contiendra le type de l'élément (repertoire ou fichier) dans son champ st_mode
+    pd = readdir(fsrc);
 
-    while(dp!=NULL){        // tant qu'il y a des éléments dans le répertoire
+    struct stat info;
 
-        if(strncmp(dp->d_name,".",1) == 0){     // Si le nom de l'élement commence par un point on passe au suivant
+    while( (pd = readdir(fsrc)) != NULL) // Tant qu'il y a des éléments à copier
+	{
+        char path_src[100];
+        char path_dest[100];
+        char filename[100];
 
-            dp=readdir(in);
-            continue ;
-
-        }
-
-        char path1[50];         // le path de départ
-        char path2[50];         // le path d'arrivée
-        char nomfichier[50];      // le nom de l'élément (fichier/répertoire) à copier
-
-        strcpy(path1,source);               // On copie le nom du répertoire de départ dans le path de depart
-        strcpy(path2,cible);                // On copie le nom du répertoire d'arrivée dans le path d'arrivée
-        strcpy(nomfichier,dp->d_name);        // On copie dans nomfichier le nom du fichier représententé par le champ d_type de la structure   
-
-        strcat(path1,"/");                  // On concatène "/" au path1
-        strcat(path1,nomfichier);             // On concatène également le nom de l'élément pour avoir le path1 complet
-
-        strcat(path2,"/");                  // On concatène "/" au path2
-        strcat(path2,nomfichier);             // On concatène également le nom de l'élément pour avoir le path2 complet
-
+        if(strncmp(pd->d_name,".",1) == 0)
+			continue ;
         
-        stat(path1, &path_stat);            // On initialise la structure sur le path 1
-        
-        //if(dp->d_type==DT_DIR)<-- On aurait pu faire ceci pour savoir si l'élément est un répertoire
+        else {
+          strcpy(path_dest,dest); // On copie dans path_dest le chemin de dest 
+          strcpy(path_src,src); // On copie dans path_src le chemin de src 
 
-        if(S_ISDIR(path_stat.st_mode)){       // Si l'élément est un répertoire
+          strcpy(filename, pd->d_name); //on recupere le nom du fichier sur lequel pointe pd
+          strcat(path_dest,"/");   // On fais la même chose pour path_dest 
+        	strcat(path_dest,filename);
+          strcat(path_src,filename); // on lui ajoute ensuite le nom du fichier pointe
+          strcat(path_src,"/"); // on rajoute / au chemin path_src
+          
+			    stat(path_src,&info); //on recupere les infos du fichier 
 
-            mkdir(path2,0777);              // On crée sa "copie" vide
-            cprep(path1,path2);             // on y ajoute tout le contenu de répertoire source (appel récursif)
-            
-        }
-        else{
-            cpfile(path1,path2);                // Sinon on copie le fichier du répertoire source vers le répertoire cible
-        }
-
-        dp=readdir(in);                     // On passe à l'élément suivant
-        
-    }
-    closedir(in);                           // On ferme le répertoire source
-    closedir(out);                          // On ferme le répertoire cible
-
-    return 0;
+			if(S_ISDIR(info.st_mode)!=0){ // si c'est un repertoire
+			//if(pd->d_type == DT_DIR){ // si c'est un repertoire avec autre methode
+          mkdir(path_dest, 0777); // On crée le fichier à l'emplacement path_dest 
+				  cprep(path_src,path_dest); // on copie les fichiers à l'interieur du repertoire de maniere recursive 
+			}
+			else { // si c'est un fichier : 
+        cpfile(path_src,path_dest); // on reutilise la fonction de l'etape 2 
+			  }	
+      }   
+  }
+    
+    closedir(fsrc);
+    closedir(fdest);
+    return;
 }
+
 
 // Fonction de copie générale
 void cp(const char *src , const char *dest){
@@ -582,7 +440,7 @@ void printChemin() { // affiche le chemin actuelle
 }
 
 /* -------- HELP -------- */
-void help(char* argv){
+void help(){
   printf(" \t\tSHELL Polytech Paris Saclay \n");
   printf("\t\t-----------------------------\n");
   printf("\t\tréalisé par Natanael et Bilail\n\n\n");
@@ -592,12 +450,6 @@ void help(char* argv){
     "- cp [source] [destination] \n"
     "- exit\n"
     "- help\n ");
-
-	if(strcmp(argv, "cd") == 0){
-		printf("\t ---- Fonction CD ----\n"
-		"Cette fonction permet de changer de repertoire courant\n"
-		" Utilisation : cd [NomDuChemin]\n");
-	}
 }
 
 int  main(int argc, char ** argvFILE) {
