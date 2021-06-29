@@ -52,7 +52,7 @@ void init_shell () {
 		// setpgid : Définir l'ID du groupe de processus pour le contrôle des travaux
 		if (setpgid (shell_pgid, shell_pgid) < 0)
 			{
-          perror ("Couldn't put the shell in its own process group");
+          perror ("shell process");
           exit (1);
         }
 		// On prend le contrôle du terminal. 
@@ -110,7 +110,7 @@ job * job_initialize (char **argv, int  num_tokens, int *foreground) {
 	for ( i = 0; i < num_tokens; i++) {		
 		if(strcmp(argv[i],  "<") == 0) {
 			if((j->first_process)  || (num_tokens <= i + 1 )) {
-				printf("ERROR: Unable to redirect files in this manner\n");
+				printf("ERROR: redirect files\n");
 				return NULL;
 			}			
 			j->input = argv[++i];
@@ -230,17 +230,17 @@ void launch_job (job *j, int foreground) {
     
   	if (j->input){
   		if((infile = open(j->input, O_RDONLY))< 0) {
-  			printf("ERROR: Could not open read file\n");
+  			printf("ERROR: open read file\n");
 			return;
 		}
 	}
   	else
 		infile = STDIN_FILENO;
-	for (p = j->first_process; p; p = p->next) {
-           /* Set up pipes, if necessary.  */
-		if (p->next){
+	for (p = j->first_process; p; p = p->next) { // On parcours tous les process
+           
+		if (p->next){ // si il y a un next
 			if (pipe (mypipe) < 0) {  /*	If pipe fails */
-				printf("ERROR: Unable to pipe input\n");
+				printf("ERROR: pipe\n");
 				return;
 			}
 			outfile = mypipe[1];
@@ -250,49 +250,54 @@ void launch_job (job *j, int foreground) {
 		}
 		else
 			outfile = STDOUT_FILENO;
-           /* Fork the child processes.  */
+           
 		pid = fork ();
 		if (pid == 0) { // Equivalent à launch process
      	       /* This is the child process.  */
 			if (shell_is_interactive) {
+				/* Placez le processus dans le groupe de processus et donnez au groupe de processus
+         le terminal, le cas échéant.
+         Ceci doit être fait à la fois par l'interpréteur de commandes et dans les
+         processus enfants individuels à cause des conditions de course potentielles..  */
+
 				signal (SIGINT, SIG_DFL);
 				signal (SIGQUIT, SIG_DFL);
 				signal (SIGTSTP, SIG_DFL);
 				signal (SIGTTIN, SIG_DFL);
 				signal (SIGTTOU, SIG_DFL);
 				signal (SIGCHLD, SIG_DFL);					
-				pid = getpid ();
+				pid = getpid (); // on recupere son ID
 				if (j->pgid == 0) 
 					j->pgid = pid;
-				setpgid (pid, j->pgid);
-				if (foreground)
-					tcsetpgrp (shell_terminal, j->pgid);			
+				setpgid (pid, j->pgid); 	// on le défini comme ID de groupe
+				if (foreground)				// si on est au premier plan on doit le placer au 1er plan partout
+					tcsetpgrp (shell_terminal, j->pgid);	// dans le sous shell et le shell		
 			}
 
 			/* Gestion des entree sortie */
 			if (infile != STDIN_FILENO) {
 				if(close(STDIN_FILENO) < 0) 
-					printf("ERROR: Could not close STDIN\n");
+					printf("ERROR: STDIN\n");
 				if(dup(infile) != STDIN_FILENO)
-					printf("ERROR: Could not dup infile\n");
+					printf("ERROR: dup infile\n");
 			}
 			if (outfile != STDOUT_FILENO) {
 				if (close(STDOUT_FILENO) < 0)
-					printf("ERROR: Could not close STDOUT\n");			
+					printf("ERROR: STDOUT\n");			
 				if (dup (outfile) != STDOUT_FILENO)
 					printf("ERROR: dup outfile\n");
 			}	
 			if (execvp (p->argv[0], p->argv) < 0) 
-				printf("ERROR: Could not execute command\n");
+				printf("ERROR: Impossible d'exécuter la commande\n");
 			exit (1);
 		}
 		else if (pid < 0) {
-     	          /* The fork failed.  */
-			printf("ERROR: forking child process failed\n");
+     	          /* echec du fork  */
+			printf("ERROR: Echec du fork\n");
 			exit (1);
 		}
 		else {
-     	         /*  This is the parent process.  */ 	      
+     	         /*  Process parent  */ 	      
 			p->pid = pid;
 			if (shell_is_interactive) {
 				if (!j->pgid)
@@ -317,6 +322,10 @@ void free_job(job * j) {
 
  /* -------- Nos fonctions CD et CP ----------*/
  
+ void mkd(char *path, int mode) {
+	mkdir(path, mode);
+}
+
 //Fonction pour copier un fichier
 void cpfile(const char *src , const char *dest){
 
@@ -348,57 +357,67 @@ void cpfile(const char *src , const char *dest){
 }
 
 //Fonction pour copier un repertoire
-void cprep(const char *src , const char *dest){
-	
-	// Copie de repertoire
-	DIR* fsrc = opendir(src);
-    DIR* fdest = opendir(dest);
+int cprep( const char *source, const char *cible){
+  
+    DIR *in = opendir(source);      // on ouvre le répertoire source
+    DIR *out = opendir(cible);      // on ouvre le répertoire cible
 
-    if (fdest == NULL) { // Si le fichier destination n'existe pas 
-        mkdir(dest, 0777); // On le crée
+    if(out==NULL){                  // Si la cible n'existe pas
+
+        mkdir(cible,0777);          // On la crée
+
     }
-	struct dirent *pd ;
 
+    struct dirent *dp;      // déclaration de la structure représentant le prochain élément du répertoire
+    dp=readdir(in);         // on lit cet élément
 
-    pd = readdir(fsrc);
+    struct stat path_stat;  // On déclare la structure stat qui contiendra le type de l'élément (repertoire ou fichier) dans son champ st_mode
 
-    struct stat info;
+    while(dp!=NULL){        // tant qu'il y a des éléments dans le répertoire
 
-    while( (pd = readdir(fsrc)) != NULL) // Tant qu'il y a des éléments à copier
-	{
-        char path_src[100];
-        char path_dest[100];
-        char filename[100];
+        if(strncmp(dp->d_name,".",1) == 0){     // Si le nom de l'élement commence par un point on passe au suivant
 
-        if(strncmp(pd->d_name,".",1) == 0)
-			continue ;
+            dp=readdir(in);
+            continue ;
+
+        }
+
+        char path1[50];         // le path de départ
+        char path2[50];         // le path d'arrivée
+        char nomfichier[50];      // le nom de l'élément (fichier/répertoire) à copier
+
+        strcpy(path1,source);               // On copie le nom du répertoire de départ dans le path de depart
+        strcpy(path2,cible);                // On copie le nom du répertoire d'arrivée dans le path d'arrivée
+        strcpy(nomfichier,dp->d_name);        // On copie dans nomfichier le nom du fichier représententé par le champ d_type de la structure   
+
+        strcat(path1,"/");                  // On concatène "/" au path1
+        strcat(path1,nomfichier);             // On concatène également le nom de l'élément pour avoir le path1 complet
+
+        strcat(path2,"/");                  // On concatène "/" au path2
+        strcat(path2,nomfichier);             // On concatène également le nom de l'élément pour avoir le path2 complet
+
         
-        else {
-          strcpy(path_dest,dest); // On copie dans path_dest le chemin de dest 
-          strcpy(path_src,src); // On copie dans path_src le chemin de src 
+        stat(path1, &path_stat);            // On initialise la structure sur le path 1
+        
+        //if(dp->d_type==DT_DIR)<-- On aurait pu faire ceci pour savoir si l'élément est un répertoire
 
-          strcpy(filename, pd->d_name); //on recupere le nom du fichier sur lequel pointe pd
-          strcat(path_dest,"/");   // On fais la même chose pour path_dest 
-        	strcat(path_dest,filename);
-          strcat(path_src,filename); // on lui ajoute ensuite le nom du fichier pointe
-          strcat(path_src,"/"); // on rajoute / au chemin path_src
-          
-			    stat(path_src,&info); //on recupere les infos du fichier 
+        if(S_ISDIR(path_stat.st_mode)){       // Si l'élément est un répertoire
 
-			if(S_ISDIR(info.st_mode)!=0){ // si c'est un repertoire
-			//if(pd->d_type == DT_DIR){ // si c'est un repertoire avec autre methode
-          mkdir(path_dest, 0777); // On crée le fichier à l'emplacement path_dest 
-				  cprep(path_src,path_dest); // on copie les fichiers à l'interieur du repertoire de maniere recursive 
-			}
-			else { // si c'est un fichier : 
-        cpfile(path_src,path_dest); // on reutilise la fonction de l'etape 2 
-			  }	
-      }   
-  }
-    
-    closedir(fsrc);
-    closedir(fdest);
-    return;
+            mkd(path2,0777);              // On crée sa "copie" vide
+            cprep(path1,path2);             // on y ajoute tout le contenu de répertoire source (appel récursif)
+            
+        }
+        else{
+            cpfile(path1,path2);                // Sinon on copie le fichier du répertoire source vers le répertoire cible
+        }
+
+        dp=readdir(in);                     // On passe à l'élément suivant
+        
+    }
+    closedir(in);                           // On ferme le répertoire source
+    closedir(out);                          // On ferme le répertoire cible
+
+    return 0;
 }
 
 
@@ -427,7 +446,7 @@ void cd (char * dir) {
 		strncat(path, "/", strlen(path));
 		strncat(path, dir, strlen(dir));		//  append desired change in directory to cwd
 		if (chdir(path) < 0)		//  Changes cwd and checks for failure
-			printf("ERROR: No such file or directory %s\n", dir);			
+			printf("ERROR: pas de chemin trouvé %s\n", dir);			
 		return;		
 	}
 }
@@ -439,8 +458,9 @@ void printChemin() { // affiche le chemin actuelle
   printf("%s", chemin);
 }
 
+
 /* -------- HELP -------- */
-void help(){
+void help(char* argv){
   printf(" \t\tSHELL Polytech Paris Saclay \n");
   printf("\t\t-----------------------------\n");
   printf("\t\tréalisé par Natanael et Bilail\n\n\n");
@@ -450,6 +470,19 @@ void help(){
     "- cp [source] [destination] \n"
     "- exit\n"
     "- help\n ");
+
+	if(strcmp(argv, "cd") == 0){
+		printf("\t ---- Fonction CD ----\n"
+		"Cette fonction permet de changer de repertoire courant\n"
+		" Utilisation : cd [NomDuChemin]\n");
+	}
+	if(strcmp(argv, "cp") == 0){
+		printf("\t ---- Fonction CP ----\n"
+		"Cette fonction permet de copier un fichier ou un repertoire\n"
+		" Utilisation : cp [Source] [Destination]\n"
+		"  [Source] pouvant être soit un fichier ou un repertoire\n");
+	}
+
 }
 
 int  main(int argc, char ** argvFILE) {
@@ -506,7 +539,8 @@ int  main(int argc, char ** argvFILE) {
 			cp(argv[1], argv[2]);
 		else if (strcmp(argv[0], "help") == 0) // on execute la fonction cp
 			help(argv[1]);	
-
+		else if (strcmp(argv[0], "mkd")) == 0) // on execute mkdir
+			mkd(argv[1], argv[2]);
 		// Sinon c'est que l'on execute un programme             	
 		else {
 			if ((first_job = job_initialize(argv, tokens, pforeground)) != NULL) {
