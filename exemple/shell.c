@@ -1,5 +1,7 @@
 #define _POSIX_SOURCE
 #define _XOPEN_SOURCE_EXTENDED 1
+//#define _BSD_SOURCE 
+#define _XOPEN_SOURCE 500     /* or any value > 500 */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,20 +14,7 @@
 #include <fcntl.h>
 #include <ctype.h>
 #include <signal.h>
-
-#include <sys/types.h>
-#include <stdio.h>
-#include <string.h>
-#include <sys/wait.h>
-#include <sys/stat.h>
-#include <termios.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <fcntl.h>
 #include <dirent.h>
-#include <signal.h>
-#include <ctype.h>
-#include <errno.h>
 
 #define WAIT_ANY -1
 
@@ -124,32 +113,7 @@ job * job_initialize (char **argv, int  num_tokens, int *foreground) {
 	/*	Vérifier l'entrée entrante analysée pour le pipe et/ou la redirection. */
 	counter = 0;		//  Utilisé pour garder la trace des jetons de commande individuels
 	for ( i = 0; i < num_tokens; i++) {		
-		if (strcmp(argv[i], "|") == 0) {
-			if (!j->first_process) { // si il n'y a pas de processus 
-				j->first_process = (process *) malloc (sizeof(process)); // on en crée un 
-				j->first_process->argv = (char ** ) malloc (counter * 100); // on lui crée  un argv
-				for ( test = 0; test < counter; test++) 
-					j->first_process->argv[test] = command[test]; // on rempli argv
-				j->first_process->argv[test] = '\0';
-				j->first_process->next = NULL;
-			}	
-			else {
-				p = j->first_process; // SI il y a deja des process
-				while (p->next)
-					p = p->next; // on rajout eun process à la fin
-				p->next = (process *) malloc (sizeof(process)); // on initialise le process
-				p->next->argv = (char ** ) malloc (counter * 100);
-				p = p->next;
-				for ( test = 0; test < counter; test++) 
-					p->argv[test] = command[test];
-				p->argv[test] = '\0';
-				p->next = NULL;				
-			}
-				//--Effacer les données stockées dans la commande et commencer à stocker
-			memset(command, '\0', sizeof(char**) * num_tokens);	
-			counter = 0;
-		}		
-		else if(strcmp(argv[i],  "<") == 0) {
+		if(strcmp(argv[i],  "<") == 0) {
 			if((j->first_process)  || (num_tokens <= i + 1 )) {
 				printf("ERROR: Unable to redirect files in this manner\n");
 				return NULL;
@@ -237,12 +201,7 @@ void  parse(char *line, char **argv, int  *tokens) {
 				*argv++ = ">";
 				break;
 			}
-			else if (*line == '|') {
-				(*tokens)++;
-				*line++ = '\0';
-				*argv++ = "|";
-				break;
-			}
+			
 			else
 				line++;             /* on saute l'argument   */
 		}
@@ -607,7 +566,7 @@ void cd (char * dir) {
 	
 	if (dir != NULL) {
 		getcwd(path, sizeof(path));     //  Grabs current working directory
-		strncat(path, "/", 1);
+		strncat(path, "/", strlen(path));
 		strncat(path, dir, strlen(dir));		//  append desired change in directory to cwd
 		if (chdir(path) < 0)		//  Changes cwd and checks for failure
 			printf("ERROR: No such file or directory %s\n", dir);			
@@ -623,7 +582,7 @@ void printChemin() { // affiche le chemin actuelle
 }
 
 /* -------- HELP -------- */
-void help(){
+void help(char* argv){
   printf(" \t\tSHELL Polytech Paris Saclay \n");
   printf("\t\t-----------------------------\n");
   printf("\t\tréalisé par Natanael et Bilail\n\n\n");
@@ -633,6 +592,12 @@ void help(){
     "- cp [source] [destination] \n"
     "- exit\n"
     "- help\n ");
+
+	if(strcmp(argv, "cd") == 0){
+		printf("\t ---- Fonction CD ----\n"
+		"Cette fonction permet de changer de repertoire courant\n"
+		" Utilisation : cd [NomDuChemin]\n");
+	}
 }
 
 int  main(int argc, char ** argvFILE) {
@@ -676,7 +641,7 @@ int  main(int argc, char ** argvFILE) {
         if ((p = strchr(line, '\n')) != NULL)	//	remove '\n' from the end of 'line'
 			*p = '\0';
 		parse (line, argv, ptokens);		// parse input to shell
-		if (argv[0] == '\0')
+		if (argv[0] == NULL)
 			continue;
 
 		// On regarde quelle commande a été entrée : 
@@ -688,7 +653,7 @@ int  main(int argc, char ** argvFILE) {
 		else if (strcmp(argv[0], "cp") == 0) // on execute la fonction cp
 			cp(argv[1], argv[2]);
 		else if (strcmp(argv[0], "help") == 0) // on execute la fonction cp
-			help();	
+			help(argv[1]);	
 
 		// Sinon c'est que l'on execute un programme             	
 		else {
