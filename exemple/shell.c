@@ -76,14 +76,15 @@ typedef struct job {
 	struct job *next;           /* pointeur vers le prochain job */
 	process *first_process;     /* pointeur vers les processus du job - nottament le 1er */
 	pid_t pgid;                 /* process group ID */
-	struct termios tmodes;      /* saved terminal modes */
+	struct termios tmodes;      /* modes terminal */
 	char * input;		 /* file i/o channels */
 	char * output; 
 } job;
 
 /* On initialise le job - pour le moment il ne pointe rien */   
 job *first_job = NULL;
-/*  Initializing a job */
+
+/*Initialisation de jobs*/
 job * job_initialize (char **argv, int  num_tokens, int *foreground) {
 	job * j; 			// on créer un pointeur vers un job
 	process * p;	 	// on créer un pointeur vers un process
@@ -125,7 +126,7 @@ job * job_initialize (char **argv, int  num_tokens, int *foreground) {
 			}
 		}
 		else if(strcmp(argv[i],  ">") == 0) {
-			if ( i + 2 == num_tokens){		//  There was a token specified for redirection
+			if ( i + 2 == num_tokens){		//  nouveau token de redirection
 				j->output = argv[i + 1];
 				command[counter] = '\0';
 				if (!j->first_process) {
@@ -149,7 +150,7 @@ job * job_initialize (char **argv, int  num_tokens, int *foreground) {
 			}
 		} 
 		else
-			command[counter++] = argv[i]; // on rempli command avec les arguments entree en param
+			command[counter++] = argv[i]; // on remplit command avec les arguments entree en paramètres
 	}
 	command[counter] = '\0';
 	if (!j->first_process) {
@@ -178,12 +179,12 @@ void  parse(char *line, char **argv, int  *tokens) {
 			}
 			*line++ = '\0';     /*remplacer les espaces blancs par '\0'  */
 		}
-	         /* sauvegarder la position de l'argument      */ 
+	    /* sauvegarder la position de l'argument      */ 
 		if(*line != '<' && *line != '>') {
 			*argv++ = line; 
 			(*tokens)++;
 		}
-		while (isalnum(*line) || ispunct(*line)) { // si c'est un caractere alphanumerique ou ponctuation
+		while (isalnum(*line) || ispunct(*line)) {  // si c'est un caractere alphanumerique ou ponctuation
 			if (*line == '<') {
 				(*tokens)++;
 				*line++ = '\0';
@@ -201,10 +202,10 @@ void  parse(char *line, char **argv, int  *tokens) {
 				line++;             /* on saute l'argument   */
 		}
 	}
-	*argv = '\0';                 /* on marque la fin  */
+	*argv = '\0';                   /* on marque la fin  */
 }
 
-
+/* passer un job en premier plan */
 void put_job_in_foreground (job *j) {
        /* Put the job into the foreground.  */
 	tcsetpgrp (shell_terminal, j->pgid);
@@ -220,8 +221,7 @@ void put_job_in_foreground (job *j) {
 }
 
 
-    /* Store the status of the process pid that was returned by waitpid.
-        Return 0 if all went well, nonzero otherwise.  */	
+/*Lancement de travaux*/	
 
 void launch_job (job *j, int foreground) {
 	process *p;
@@ -238,8 +238,8 @@ void launch_job (job *j, int foreground) {
 		infile = STDIN_FILENO;
 	for (p = j->first_process; p; p = p->next) { // On parcours tous les process
            
-		if (p->next){ // si il y a un next
-			if (pipe (mypipe) < 0) {  /*	If pipe fails */
+		if (p->next){ 						// si il y a un next
+			if (pipe (mypipe) < 0) {  		// echec du pipe
 				printf("ERROR: pipe\n");
 				return;
 			}
@@ -252,13 +252,13 @@ void launch_job (job *j, int foreground) {
 			outfile = STDOUT_FILENO;
            
 		pid = fork ();
-		if (pid == 0) { // Equivalent à launch process
-     	       /* This is the child process.  */
+		if (pid == 0) { 									// Equivalent à launch process
+     	    /* This is the child process.  */
 			if (shell_is_interactive) {
 				/* Placez le processus dans le groupe de processus et donnez au groupe de processus
-         le terminal, le cas échéant.
-         Ceci doit être fait à la fois par l'interpréteur de commandes et dans les
-         processus enfants individuels à cause des conditions de course potentielles..  */
+				le terminal, le cas échéant.
+				Ceci doit être fait à la fois par l'interpréteur de commandes et dans les
+				processus enfants individuels à cause des conditions de course potentielles..  */
 
 				signal (SIGINT, SIG_DFL);
 				signal (SIGQUIT, SIG_DFL);
@@ -269,8 +269,8 @@ void launch_job (job *j, int foreground) {
 				pid = getpid (); // on recupere son ID
 				if (j->pgid == 0) 
 					j->pgid = pid;
-				setpgid (pid, j->pgid); 	// on le défini comme ID de groupe
-				if (foreground)				// si on est au premier plan on doit le placer au 1er plan partout
+				setpgid (pid, j->pgid); 					// on le défini comme ID de groupe
+				if (foreground)								// si on est au premier plan on doit le placer au 1er plan partout
 					tcsetpgrp (shell_terminal, j->pgid);	// dans le sous shell et le shell		
 			}
 
@@ -315,7 +315,7 @@ void launch_job (job *j, int foreground) {
 		put_job_in_foreground(j);
 }
 
-      /*    Delete terminated jobs from the active job list.  */
+/*    supprime les jobs terminés de la liste des jobs actifs  */
 void free_job(job * j) {
 	free (j);
 }
@@ -329,14 +329,13 @@ void free_job(job * j) {
 //Fonction pour copier un fichier
 void cpfile(const char *src , const char *dest){
 
-    /*struct stat st;      
-    fstat (fsrc =, &st);  sans chmod */
+   
     int fsrc = open(src, O_RDONLY); // on ouvre en lecture seulement 
     int fdest = open(dest, O_WRONLY | O_CREAT | O_EXCL, 0666);
 
     struct stat istat;
     fstat(fsrc, &istat);
-    fchmod(fdest, istat.st_mode); // passer par chmod
+    fchmod(fdest, istat.st_mode);
     
     while(1){
         char buffer[4096];
@@ -442,16 +441,16 @@ void cd (char * dir) {
 	char path[100];
 	
 	if (dir != NULL) {
-		getcwd(path, sizeof(path));     //  Grabs current working directory
+		getcwd(path, sizeof(path));     //  le repertoire courant
 		strncat(path, "/", strlen(path));
-		strncat(path, dir, strlen(dir));		//  append desired change in directory to cwd
-		if (chdir(path) < 0)		//  Changes cwd and checks for failure
+		strncat(path, dir, strlen(dir));		//  on concatene les changements
+		if (chdir(path) < 0)		
 			printf("ERROR: pas de chemin trouvé %s\n", dir);			
 		return;		
 	}
 }
 
-void printChemin() { // affiche le chemin actuelle 
+void printChemin() { // affiche le chemin actuel
   char chemin[1024];
   getcwd(chemin, sizeof(chemin));
   
@@ -486,8 +485,8 @@ void help(char* argv){
 }
 
 int  main(int argc, char ** argvFILE) {
-	char  line[1024];             /* the input line                 */
-	char  *argv[64];              /* the command line argument      */
+	char  line[1024];             /* la ligne d'input                 */
+	char  *argv[64];              /* la ligne de commande du shell      */
 	char * p;
 	int tokens, foreground;
 	int * ptokens =&tokens;
@@ -512,20 +511,20 @@ int  main(int argc, char ** argvFILE) {
 
 
 	init_shell();	
-	while (1) {                   /* repeat until done ....         */
-		if(input_from_file < 0){	/*	stdin is coming from user not file */
+	while (1) {                   /* répeter à l'infini ....         */
+		if(input_from_file < 0){	/*	entrée venant de l'utilisateur et non d'un fichier */
 			printChemin();
-			printf(" - Polytech Paris Saclay >");        /*   display a prompt             */   	             	
+			printf(" - Polytech Paris Saclay >");        /*   affichage prompt             */   	             	
 		
-			memset (line, '\0', sizeof(line));		// zero line, (fills array with null terminator)
+			memset (line, '\0', sizeof(line));		
        		memset (argv, '\0', sizeof(argv));
 
-        	if (!fgets(line, sizeof(line), stdin)) 	{printf("\n"); return 0;} }	// Exit upon ctrl-D
-     		if(strlen(line) == 1) { continue;}	//	 check for empty string aka 'enter' is pressed without input
+        	if (!fgets(line, sizeof(line), stdin)) 	{printf("\n"); return 0;} }	
+     		if(strlen(line) == 1) { continue;}	//	 On check les entrées vides
 	
-        if ((p = strchr(line, '\n')) != NULL)	//	remove '\n' from the end of 'line'
+        if ((p = strchr(line, '\n')) != NULL)	
 			*p = '\0';
-		parse (line, argv, ptokens);		// parse input to shell
+		parse (line, argv, ptokens);		// On parse les entrées pour le shell
 		if (argv[0] == NULL)
 			continue;
 
