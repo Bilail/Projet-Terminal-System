@@ -80,6 +80,9 @@ typedef struct process {
 	struct process *next;       /* pointeur vers le prochain processus  */
 	char **argv;                /* pour executer  */
 	pid_t pid;                  /* process ID */
+	int status;                 /* reported status value */
+	char stopped;               /* true si le process est  stopped */
+	char completed;             /* true si le process est completed */
 } process;
      
      /* Job - Liste de processus   */
@@ -89,7 +92,8 @@ typedef struct job {
 	pid_t pgid;                 /* process group ID */
 	struct termios tmodes;      /* saved terminal modes */
 	char * input;		 /* file i/o channels */
-	char * output; 
+	char * output;
+	int stdin, stdout, stderr; 
 } job;
 
 /* On initialise le job - pour le moment il ne pointe rien */   
@@ -97,18 +101,19 @@ job *first_job = NULL;
 
 	/*  Initializing a job */
 job * job_initialize (char **argv, int  num_tokens, int *foreground) {
-	job * j;
-	process * p;
-	char ** command;
+	job * j; 			// on créer un pointeur vers un job
+	process * p;	 	// on créer un pointeur vers un process
+	char ** command;	
 	int i, counter,test;
 	
-	j = (job *) malloc (sizeof(job));
+	/* Initialisation du Job */
+	j = (job *) malloc (sizeof(job)); // espace memoire pour le job
 	j->first_process = NULL;
 	j->input = NULL;
 	j->output = NULL;
 	command = (char **) malloc (sizeof(char **) * (num_tokens + 1));
 	
-	/*	Checks if argument is intended to run in the background */
+	/*	Vérifie si l'argument doit être exécuté en arrière-plan */
 	if (strcmp(argv[num_tokens - 1], "&") == 0) {
 		*foreground = 0;
 		num_tokens--;
@@ -116,23 +121,23 @@ job * job_initialize (char **argv, int  num_tokens, int *foreground) {
 	else 
 		*foreground = 1;
 
-	/*	Check incoming parsed input for piping and or redirection */
-	counter = 0;		//  Used to keep track of individual command tokens
+	/*	Vérifier l'entrée entrante analysée pour le pipe et/ou la redirection. */
+	counter = 0;		//  Utilisé pour garder la trace des jetons de commande individuels
 	for ( i = 0; i < num_tokens; i++) {		
 		if (strcmp(argv[i], "|") == 0) {
-			if (!j->first_process) {
-				j->first_process = (process *) malloc (sizeof(process));
-				j->first_process->argv = (char ** ) malloc (counter * 100);  // arbitrarily large
+			if (!j->first_process) { // si il n'y a pas de processus 
+				j->first_process = (process *) malloc (sizeof(process)); // on en crée un 
+				j->first_process->argv = (char ** ) malloc (counter * 100); // on lui crée  un argv
 				for ( test = 0; test < counter; test++) 
-					j->first_process->argv[test] = command[test];
+					j->first_process->argv[test] = command[test]; // on rempli argv
 				j->first_process->argv[test] = '\0';
 				j->first_process->next = NULL;
 			}	
 			else {
-				p = j->first_process; 
+				p = j->first_process; // SI il y a deja des process
 				while (p->next)
-					p = p->next;
-				p->next = (process *) malloc (sizeof(process));
+					p = p->next; // on rajout eun process à la fin
+				p->next = (process *) malloc (sizeof(process)); // on initialise le process
 				p->next->argv = (char ** ) malloc (counter * 100);
 				p = p->next;
 				for ( test = 0; test < counter; test++) 
@@ -140,7 +145,7 @@ job * job_initialize (char **argv, int  num_tokens, int *foreground) {
 				p->argv[test] = '\0';
 				p->next = NULL;				
 			}
-			/*	Clear data stored in command and begin storing */
+				//--Effacer les données stockées dans la commande et commencer à stocker
 			memset(command, '\0', sizeof(char**) * num_tokens);	
 			counter = 0;
 		}		
@@ -185,7 +190,7 @@ job * job_initialize (char **argv, int  num_tokens, int *foreground) {
 			}
 		} 
 		else
-			command[counter++] = argv[i];
+			command[counter++] = argv[i]; // on rempli command avec les arguments entree en param
 	}
 	command[counter] = '\0';
 	if (!j->first_process) {
@@ -205,21 +210,21 @@ job * job_initialize (char **argv, int  num_tokens, int *foreground) {
 
 void  parse(char *line, char **argv, int  *tokens) {
 	*tokens = 0;
-	while (*line != '\0') {       /* if not the end of line ....... */ 
+	while (*line != '\0') {       /* Si ce n'est pas la fin de la ligne....... */ 
 
 		while (isspace(*line) || iscntrl(*line)) {
 			if (*line == '\0') {
 				*argv = '\0';			
 				return;
 			}
-			*line++ = '\0';     /* replace white spaces with NULL terminator   */
+			*line++ = '\0';     /*remplacer les espaces blancs par '\0'  */
 		}
-	         /* save the argument position     */ 
+	         /* sauvegarder la position de l'argument      */ 
 		if(*line != '<' && *line != '>' && *line != '|') {
 			*argv++ = line; 
 			(*tokens)++;
 		}
-		while (isalnum(*line) || ispunct(*line)) {
+		while (isalnum(*line) || ispunct(*line)) { // si c'est un caractere alphanumerique ou ponctuation
 			if (*line == '<') {
 				(*tokens)++;
 				*line++ = '\0';
@@ -239,11 +244,76 @@ void  parse(char *line, char **argv, int  *tokens) {
 				break;
 			}
 			else
-				line++;             /* skip the argument until ...    */
+				line++;             /* on saute l'argument   */
 		}
 	}
-	*argv = '\0';                 /* mark the end of argument list  */
+	*argv = '\0';                 /* on marque la fin  */
 }
+
+
+/* Return 1 si tous les process du job qu el'on a donné en paramètre sont fini (complétés)  */
+int job_is_completed (job *j)
+{
+  process *p;
+    // On parcours tous les process du job 
+  for (p = j->first_process; p; p = p->next)
+    if (!p->completed) // Si l'un n'est pas fini 
+      return 0;       // On retourne 0
+  return 1;          // Sinon on retourne 1
+}
+
+
+/* Return 1 si tous les process du job qu'on donne en paramètre sont stoppé ou fini   */
+int job_is_stopped (job *j)
+{
+  process *p;
+// On parcours tous les process du job 
+  for (p = j->first_process; p; p = p->next)
+    if (!p->completed && !p->stopped) // Si le job n'est pas complété ou stoppe 
+      return 0;                      // On retourne 0
+  return 1;                         // Sinon on retourne 1 
+}
+
+/* Fonction stockant le status du processus identifié par pid retourné par waitpid,
+si tout s'est bien passé, retourne 0, et -1 sinon  */
+
+int mark_process_status (pid_t pid, int status)
+{
+  job *j;                   // le job auquel appartient le processus
+  process *p;               // le processus 
+
+  if (pid > 0)              // si le processus n'est pas un swapper
+    {
+      /* Update the record for the process.  */
+      for (j = first_job; j; j = j->next)                   // Parcours des jobs
+        for (p = j->first_process; p; p = p->next)          // Parcours des processus
+          if (p->pid == pid)                                // On trouve le processus correspondant
+            {
+              p->status = status;                           // On initialise son statut
+              if (WIFSTOPPED (status))                      // Si le processus a été arreté par un signal
+                p->stopped = 1;                             // mise à jour de son champ stopped
+              else
+                {
+                  p->completed = 1;                                      // Sinon màj de son champ completed
+                  if (WIFSIGNALED (status))                             // S'il s'est terminé à cause d'un signal
+                    fprintf (stderr, "%d: Terminated by signal %d.\n",
+                             (int) pid, WTERMSIG (p->status));
+                }
+              return 0;                                         // status du processus bien stocké, pas d'erreur, on retourne 0
+             }
+      fprintf (stderr, "No child process %d.\n", pid);
+      return -1;
+    }
+  else if (pid == 0 || errno == ECHILD)
+    /* No processes ready to report.  */
+    return -1;
+  else {
+    /* Other weird errors.  */
+    perror ("waitpid");
+    return -1;
+  }
+}
+
 
 /* Vérifie si il y as des processus dont l'information sur l'état est disponible,
    bloque jusqu'à ce que tous les processus du job concerné soit arretés ou terminés  */
@@ -288,7 +358,7 @@ void put_job_in_foreground (job *j, int cont)
   tcsetattr (shell_terminal, TCSADRAIN, &shell_tmodes);
 }
 
-
+/* Mettre le job à l'arriere pla, */
 void put_job_in_background (job *j, int cont)
 {
   /* Send the job a continue signal, if necessary.  */
@@ -297,13 +367,8 @@ void put_job_in_background (job *j, int cont)
       perror ("kill (SIGCONT)");
 }
 
-
-void launch_process (process *p, pid_t pgid,
-   int infile, 
-   int outfile,
-   int errfile,
-   int foreground)
-{
+/* Lancement d'un process */
+void launch_process (process *p, pid_t pgid,int infile, int outfile,int errfile,int foreground) {
   pid_t pid;
 
   if (shell_is_interactive)
@@ -334,6 +399,8 @@ void launch_process (process *p, pid_t pgid,
 		if(dup(infile) != STDIN_FILENO)
 					printf("ERROR: Could not dup infile\n");
 	}
+
+	/* Gestion des entree et sortie */
 	if (outfile != STDOUT_FILENO) {
 		if (close(STDOUT_FILENO) < 0)
 			printf("ERROR: Could not close STDOUT\n");			
